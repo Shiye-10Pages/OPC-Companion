@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import Combine
+import UserNotifications
 
 @MainActor
 public final class AppState: ObservableObject {
@@ -41,9 +42,64 @@ public final class AppState: ObservableObject {
     @Published public var lastTriggerDate: String = ""  // 上次检查日期
 
     private var cancellables = Set<AnyCancellable>()
+    private var globalTimer: Timer?
 
     public init() {
         loadData()
+        startGlobalTimer()
+    }
+
+    private func startGlobalTimer() {
+        globalTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.tick()
+            }
+        }
+    }
+
+    private func tick() {
+        guard let activeTask = self.activeTask,
+              let timerEnd = activeTask.timerEnd,
+              activeTask.status == .inProgress else {
+            return
+        }
+
+        let now = Date()
+        let totalSeconds = activeTask.timerMinutes.map { $0 * 60 } ?? 0
+        let remainingSeconds = Int(timerEnd.timeIntervalSince(now))
+
+        if remainingSeconds <= 0 {
+            if self.menuBarStatus != .overtime {
+                self.menuBarStatus = .overtime
+                self.sendNotification(title: "任务结束", body: "任务 [\(activeTask.title)] 已超时，请确认是否完成。")
+                let msg = Message(role: .system, content: "⏰ 任务 [\(activeTask.title)] 已超时！")
+                self.appendMessage(msg)
+            }
+        } else if totalSeconds > 0, Double(remainingSeconds) <= Double(totalSeconds) * 0.2 {
+            if self.menuBarStatus != .warning && self.menuBarStatus != .overtime {
+                self.menuBarStatus = .warning
+                self.sendNotification(title: "时间提醒", body: "任务 [\(activeTask.title)] 剩余时间不足 20%。")
+                let msg = Message(role: .system, content: "⚠️ 任务 [\(activeTask.title)] 剩余时间不足 20%。")
+                self.appendMessage(msg)
+            }
+        } else {
+            if self.menuBarStatus != .focus {
+                self.menuBarStatus = .focus
+            }
+        }
+
+        // 强制刷新依赖 activeTask 的 UI
+        self.objectWillChange.send()
+    }
+
+    public func sendNotification(title: String, body: String) {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
+        
+        let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(request)
     }
 
     private func loadData() {

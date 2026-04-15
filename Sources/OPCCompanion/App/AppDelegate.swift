@@ -217,24 +217,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         
         dlog("[DIAG] Adding global monitor for events...")
         
-        hotkeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged]) { event in
-            dlog("[HOTKEY] Global event: keyCode=\(event.keyCode), modifiers=\(event.modifierFlags.rawValue)")
-            
-            // keyCode 49 = Space
-            if event.keyCode == 49 && event.modifierFlags.contains(.option) {
-                dlog("[HOTKEY] Option+Space detected!")
-                DispatchQueue.main.async {
-                    AppDelegate.shared?.togglePanel()
-                }
-            }
+        hotkeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged]) { [weak self] event in
+            self?.handleHotkey(event: event)
         }
         
         dlog("[DIAG] Global monitor added: \(hotkeyMonitor != nil)")
         
         dlog("[DIAG] Adding local monitor for events...")
-        localHotkeyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged]) { event in
-            dlog("[LOCAL-HOTKEY] Local event: keyCode=\(event.keyCode), modifiers=\(event.modifierFlags.rawValue)")
-
+        localHotkeyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged]) { [weak self] event in
             // Cmd+D 关闭面板 (keyCode 2 = D)
             if event.keyCode == 2 && event.modifierFlags.contains(.command) {
                 dlog("[LOCAL-HOTKEY] Cmd+D detected - closing panel!")
@@ -244,12 +234,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 return nil
             }
 
-            // Option+Space 切换面板 (keyCode 49 = Space)
+            self?.handleHotkey(event: event)
+            
             if event.keyCode == 49 && event.modifierFlags.contains(.option) {
-                dlog("[LOCAL-HOTKEY] Option+Space detected!")
-                DispatchQueue.main.async {
-                    AppDelegate.shared?.togglePanel()
-                }
                 return nil
             }
             return event
@@ -258,6 +245,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         dlog("[DIAG] Local monitor added: \(localHotkeyMonitor != nil)")
         
         dlog("[DIAG] setupHotkey: END")
+    }
+
+    private func handleHotkey(event: NSEvent) {
+        if event.keyCode == 49 && event.modifierFlags.contains(.option) {
+            if event.type == .keyDown && !event.isARepeat {
+                if hotkeyDownTime == nil {
+                    hotkeyDownTime = Date()
+                    isLongPressTriggered = false
+                    
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                        guard let self = self, self.hotkeyDownTime != nil else { return }
+                        self.isLongPressTriggered = true
+                        dlog("[HOTKEY] Long press detected!")
+                        if !self.panel!.isVisible {
+                            self.showPanel()
+                        }
+                        Task { @MainActor in
+                            let authorized = await VoiceService.shared.requestAuthorization()
+                            if authorized && !VoiceService.shared.isRecording {
+                                try? VoiceService.shared.startRecording()
+                            }
+                        }
+                    }
+                }
+            } else if event.type == .keyUp {
+                if let downTime = hotkeyDownTime {
+                    let duration = Date().timeIntervalSince(downTime)
+                    hotkeyDownTime = nil
+                    
+                    if duration < 0.5 && !isLongPressTriggered {
+                        dlog("[HOTKEY] Short press detected!")
+                        DispatchQueue.main.async {
+                            AppDelegate.shared?.togglePanel()
+                        }
+                    } else if isLongPressTriggered {
+                        dlog("[HOTKEY] Long press ended, stopping voice!")
+                        Task { @MainActor in
+                            if VoiceService.shared.isRecording {
+                                VoiceService.shared.stopRecording()
+                            }
+                        }
+                    }
+                }
+            }
+        } else if event.type == .keyUp && event.keyCode == 49 {
+            hotkeyDownTime = nil
+            Task { @MainActor in
+                if isLongPressTriggered && VoiceService.shared.isRecording {
+                    VoiceService.shared.stopRecording()
+                }
+            }
+        }
     }
 
     private func startScheduledTaskCheck() {

@@ -32,7 +32,9 @@ public final class ChatEngine: @unchecked Sendable {
     }
 
     public func sendMessage(_ userMessage: String, systemPrompt: String) async throws -> String {
-        let sessionId = UUID().uuidString  // session-id 必须是 UUID 格式
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        let sessionId = "opc-\(dateFormatter.string(from: Date()))"
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: claudePath)
@@ -69,7 +71,9 @@ public final class ChatEngine: @unchecked Sendable {
     }
 
     public func sendMessageWithMCP(_ userMessage: String, systemPrompt: String, mcpConfigPath: String?) async throws -> String {
-        let sessionId = UUID().uuidString  // session-id 必须是 UUID 格式
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        let sessionId = "opc-\(dateFormatter.string(from: Date()))"
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: claudePath)
