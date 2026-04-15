@@ -1,0 +1,629 @@
+{
+  "builtTestProducts" : [
+
+  ],
+  "copyCommands" : {
+    "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion_OPCCompanion.bundle/notion-mcp.json" : {
+      "inputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/Resources/notion-mcp.json"
+        }
+      ],
+      "outputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion_OPCCompanion.bundle/notion-mcp.json"
+        }
+      ]
+    }
+  },
+  "explicitTargetDependencyImportCheckingMode" : {
+    "none" : {
+
+    }
+  },
+  "generatedSourceTargetSet" : [
+
+  ],
+  "pluginDescriptions" : [
+
+  ],
+  "swiftCommands" : {
+    "C.OPCCompanion-arm64-apple-macosx-debug.module" : {
+      "executable" : "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc",
+      "fileList" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/sources",
+      "importPath" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/Modules",
+      "inputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/App/AppDelegate.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/App/main.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Models/AppConfig.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Models/Message.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Models/ScheduledTask.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Models/TaskItem.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Services/AppState.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Services/ChatEngine.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Services/NotionSyncService.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Services/VoiceService.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Utils/AppDesignSystem.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Views/Chat/ChatView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Views/Components/ContentView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Views/Components/MainTabView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Views/Components/MarkdownText.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Views/Components/NotionConfirmCard.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Views/Components/PopoverView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Views/History/HistoryView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Views/Settings/SettingsView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/DerivedSources/resource_bundle_accessor.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt"
+        },
+        {
+          "kind" : "virtual",
+          "name" : "<OPCCompanion-arm64-apple-macosx-debug.module-resources>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/sources"
+        }
+      ],
+      "isLibrary" : false,
+      "moduleName" : "OPCCompanion",
+      "moduleOutputPath" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/Modules/OPCCompanion.swiftmodule",
+      "objects" : [
+        "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/AppDelegate.swift.o",
+        "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/main.swift.o",
+        "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/AppConfig.swift.o",
+        "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/Message.swift.o",
+        "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/ScheduledTask.swift.o",
+        "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/TaskItem.swift.o",
+        "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/AppState.swift.o",
+        "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/ChatEngine.swift.o",
+        "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/NotionSyncService.swift.o",
+        "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/VoiceService.swift.o",
+        "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/AppDesignSystem.swift.o",
+        "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/ChatView.swift.o",
+        "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/ContentView.swift.o",
+        "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/MainTabView.swift.o",
+        "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/MarkdownText.swift.o",
+        "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/NotionConfirmCard.swift.o",
+        "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/PopoverView.swift.o",
+        "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/HistoryView.swift.o",
+        "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/SettingsView.swift.o",
+        "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/resource_bundle_accessor.swift.o"
+      ],
+      "otherArguments" : [
+        "-target",
+        "arm64-apple-macosx15.0",
+        "-incremental",
+        "-enable-batch-mode",
+        "-serialize-diagnostics",
+        "-index-store-path",
+        "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/index/store",
+        "-Onone",
+        "-enable-testing",
+        "-j8",
+        "-DSWIFT_PACKAGE",
+        "-DDEBUG",
+        "-DSWIFT_MODULE_RESOURCE_BUNDLE_AVAILABLE",
+        "-module-cache-path",
+        "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/ModuleCache",
+        "-parseable-output",
+        "-Xfrontend",
+        "-entry-point-function-name",
+        "-Xfrontend",
+        "OPCCompanion_main",
+        "-swift-version",
+        "6",
+        "-plugin-path",
+        "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing",
+        "-sdk",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.4.sdk",
+        "-F",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+        "-I",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+        "-L",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+        "-g",
+        "-Xcc",
+        "-isysroot",
+        "-Xcc",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.4.sdk",
+        "-Xcc",
+        "-F",
+        "-Xcc",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+        "-Xcc",
+        "-fPIC",
+        "-Xcc",
+        "-g",
+        "-package-name",
+        "opc_伴侣"
+      ],
+      "outputFileMapPath" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/output-file-map.json",
+      "outputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/AppDelegate.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/main.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/AppConfig.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/Message.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/ScheduledTask.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/TaskItem.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/AppState.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/ChatEngine.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/NotionSyncService.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/VoiceService.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/AppDesignSystem.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/ChatView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/ContentView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/MainTabView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/MarkdownText.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/NotionConfirmCard.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/PopoverView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/HistoryView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/SettingsView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/resource_bundle_accessor.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/Modules/OPCCompanion.swiftmodule"
+        }
+      ],
+      "prepareForIndexing" : false,
+      "sources" : [
+        "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/App/AppDelegate.swift",
+        "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/App/main.swift",
+        "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Models/AppConfig.swift",
+        "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Models/Message.swift",
+        "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Models/ScheduledTask.swift",
+        "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Models/TaskItem.swift",
+        "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Services/AppState.swift",
+        "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Services/ChatEngine.swift",
+        "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Services/NotionSyncService.swift",
+        "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Services/VoiceService.swift",
+        "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Utils/AppDesignSystem.swift",
+        "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Views/Chat/ChatView.swift",
+        "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Views/Components/ContentView.swift",
+        "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Views/Components/MainTabView.swift",
+        "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Views/Components/MarkdownText.swift",
+        "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Views/Components/NotionConfirmCard.swift",
+        "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Views/Components/PopoverView.swift",
+        "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Views/History/HistoryView.swift",
+        "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Views/Settings/SettingsView.swift",
+        "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/DerivedSources/resource_bundle_accessor.swift"
+      ],
+      "tempsPath" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build",
+      "wholeModuleOptimization" : false
+    }
+  },
+  "swiftFrontendCommands" : {
+
+  },
+  "swiftTargetScanArgs" : {
+    "OPCCompanion" : [
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc",
+      "-module-name",
+      "OPCCompanion",
+      "-package-name",
+      "opc_伴侣",
+      "-c",
+      "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/App/AppDelegate.swift",
+      "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/App/main.swift",
+      "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Models/AppConfig.swift",
+      "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Models/Message.swift",
+      "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Models/ScheduledTask.swift",
+      "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Models/TaskItem.swift",
+      "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Services/AppState.swift",
+      "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Services/ChatEngine.swift",
+      "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Services/NotionSyncService.swift",
+      "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Services/VoiceService.swift",
+      "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Utils/AppDesignSystem.swift",
+      "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Views/Chat/ChatView.swift",
+      "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Views/Components/ContentView.swift",
+      "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Views/Components/MainTabView.swift",
+      "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Views/Components/MarkdownText.swift",
+      "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Views/Components/NotionConfirmCard.swift",
+      "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Views/Components/PopoverView.swift",
+      "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Views/History/HistoryView.swift",
+      "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Views/Settings/SettingsView.swift",
+      "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/DerivedSources/resource_bundle_accessor.swift",
+      "-I",
+      "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/Modules",
+      "-target",
+      "arm64-apple-macosx15.0",
+      "-incremental",
+      "-enable-batch-mode",
+      "-serialize-diagnostics",
+      "-index-store-path",
+      "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/index/store",
+      "-Onone",
+      "-enable-testing",
+      "-j8",
+      "-DSWIFT_PACKAGE",
+      "-DDEBUG",
+      "-DSWIFT_MODULE_RESOURCE_BUNDLE_AVAILABLE",
+      "-module-cache-path",
+      "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/ModuleCache",
+      "-parseable-output",
+      "-Xfrontend",
+      "-entry-point-function-name",
+      "-Xfrontend",
+      "OPCCompanion_main",
+      "-swift-version",
+      "6",
+      "-plugin-path",
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing",
+      "-sdk",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.4.sdk",
+      "-F",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+      "-I",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+      "-L",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+      "-g",
+      "-Xcc",
+      "-isysroot",
+      "-Xcc",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.4.sdk",
+      "-Xcc",
+      "-F",
+      "-Xcc",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+      "-Xcc",
+      "-fPIC",
+      "-Xcc",
+      "-g",
+      "-package-name",
+      "opc_伴侣",
+      "-driver-use-frontend-path",
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"
+    ]
+  },
+  "targetDependencyMap" : {
+    "OPCCompanion" : [
+
+    ]
+  },
+  "testDiscoveryCommands" : {
+
+  },
+  "testEntryPointCommands" : {
+
+  },
+  "traitConfiguration" : {
+    "default" : {
+
+    }
+  },
+  "writeCommands" : {
+    "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion-entitlement.plist" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<entitlement-plist>"
+        },
+        {
+          "kind" : "virtual",
+          "name" : "<com.apple.security.get-task-allow>"
+        }
+      ],
+      "outputFilePath" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion-entitlement.plist"
+    },
+    "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/sources" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<sources-file-list>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/App/AppDelegate.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/App/main.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Models/AppConfig.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Models/Message.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Models/ScheduledTask.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Models/TaskItem.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Services/AppState.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Services/ChatEngine.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Services/NotionSyncService.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Services/VoiceService.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Utils/AppDesignSystem.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Views/Chat/ChatView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Views/Components/ContentView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Views/Components/MainTabView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Views/Components/MarkdownText.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Views/Components/NotionConfirmCard.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Views/Components/PopoverView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Views/History/HistoryView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/Sources/OPCCompanion/Views/Settings/SettingsView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/DerivedSources/resource_bundle_accessor.swift"
+        }
+      ],
+      "outputFilePath" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/sources"
+    },
+    "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.product/Objects.LinkFileList" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<link-file-list>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/AppConfig.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/AppDelegate.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/AppDesignSystem.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/AppState.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/ChatEngine.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/ChatView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/ContentView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/HistoryView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/MainTabView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/MarkdownText.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/Message.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/NotionConfirmCard.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/NotionSyncService.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/PopoverView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/ScheduledTask.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/SettingsView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/TaskItem.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/VoiceService.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/main.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.build/resource_bundle_accessor.swift.o"
+        }
+      ],
+      "outputFilePath" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/OPCCompanion.product/Objects.LinkFileList"
+    },
+    "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt" : {
+      "alwaysOutOfDate" : true,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<swift-get-version>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"
+        }
+      ],
+      "outputFilePath" : "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt"
+    }
+  }
+}

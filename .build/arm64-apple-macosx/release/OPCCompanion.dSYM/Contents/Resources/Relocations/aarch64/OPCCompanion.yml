@@ -1,0 +1,5 @@
+---
+triple:          'arm64-apple-darwin'
+binary-path:     "/Users/shiye/Projects/OPC 伴侣/.build/arm64-apple-macosx/release/OPCCompanion"
+relocations:     []
+...
