@@ -2,31 +2,49 @@ import AppKit
 import SwiftUI
 import Combine
 import Foundation
+import UserNotifications
+import Carbon.HIToolbox
 
-// 调试日志写入文件
+// 兼容旧调用点：全部转发到 OPCLogger
 func dlog(_ message: String) {
-    let timestamp = ISO8601DateFormatter().string(from: Date())
-    let line = "[\(timestamp)] \(message)\n"
+    OPCLogger.shared.log(.info, "legacy", message)
+}
 
-    let logDir = FileManager.default.temporaryDirectory
-    let logPath = logDir.appendingPathComponent("opc_debug.log")
+final class RedDotView: NSView {}
 
-    // 写入文件
-    if let data = line.data(using: .utf8) {
-        if FileManager.default.fileExists(atPath: logPath.path) {
-            // 追加写入
-            if let handle = try? FileHandle(forWritingTo: logPath) {
-                handle.seekToEndOfFile()
-                handle.write(data)
-                handle.closeFile()
-            }
-        } else {
-            // 首次写入
-            try? data.write(to: logPath)
-        }
+final class YellowBadgeView: NSView {
+    var text: String = "" {
+        didSet { needsDisplay = true }
     }
 
-    NSLog("OPC: %@", message)
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        NSColor.systemYellow.setFill()
+        NSBezierPath(ovalIn: bounds).fill()
+        guard !text.isEmpty else { return }
+        let font = NSFont.systemFont(ofSize: 8, weight: .bold)
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: NSColor.white
+        ]
+        let nsText = text as NSString
+        let textSize = nsText.size(withAttributes: attrs)
+        let origin = NSPoint(
+            x: (bounds.width - textSize.width) / 2,
+            y: (bounds.height - textSize.height) / 2
+        )
+        nsText.draw(at: origin, withAttributes: attrs)
+    }
+}
+
+final class HUDPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
+}
+
+final class QuickCapturePanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
 }
 
 @MainActor
@@ -34,6 +52,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     static var shared: AppDelegate!
 
     var panel: NSPanel?
+    var quickCapturePanel: NSPanel?
     var statusItem: NSStatusItem?
     var popover: NSPopover?
 
@@ -41,11 +60,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var localHotkeyMonitor: Any?
     var hotkeyDownTime: Date?
     var isLongPressTriggered = false
+    private var lastSpaceKeyDownAt: Date = .distantPast
+    private var lastQuickCaptureAt: Date = .distantPast
 
     var state = AppState.shared
     private var cancellables = Set<AnyCancellable>()
     private var statusTimer: Timer?
     private var scheduledCheckTimer: Timer?
+
+    override init() {
+        super.init()
+        Self.shared = self
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         dlog("===========================================")
@@ -54,6 +80,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         
         dlog("[DIAG] NSApplication.shared: \(NSApplication.shared)")
         dlog("[DIAG] NSApplication.shared.isActive: \(NSApplication.shared.isActive)")
+
+        setupMainMenu()
+        dlog("[DIAG] Main menu setup completed")
         
         setupStatusItem()
         dlog("[DIAG] StatusItem setup completed")
@@ -73,6 +102,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         setupStateObservers()
         dlog("[DIAG] Observers setup completed")
 
+        // 监听 Space 切换：用户换到另一个桌面 Space 时直接关闭面板，避免闪烁
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(handleSpaceChange),
+            name: NSWorkspace.activeSpaceDidChangeNotification,
+            object: nil
+        )
+
         dlog("===========================================")
         dlog("AppDelegate: applicationDidFinishLaunching END")
         dlog("===========================================")
@@ -80,6 +117,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         dlog("[DIAG] FINAL - statusItem: \(statusItem != nil)")
         dlog("[DIAG] FINAL - panel: \(panel != nil)")
         dlog("[DIAG] FINAL - hotkeyMonitor: \(hotkeyMonitor != nil)")
+    }
+
+    func createMainMenu() -> NSMenu {
+        let mainMenu = NSMenu()
+
+        let appMenuItem = NSMenuItem()
+        mainMenu.addItem(appMenuItem)
+
+        let appMenu = NSMenu()
+        appMenuItem.submenu = appMenu
+
+        let quitItem = NSMenuItem(
+            title: "退出 OPC 伴侣",
+            action: #selector(NSApplication.terminate(_:)),
+            keyEquivalent: "q"
+        )
+        quitItem.keyEquivalentModifierMask = [.command]
+        appMenu.addItem(quitItem)
+
+        let editMenuItem = NSMenuItem()
+        mainMenu.addItem(editMenuItem)
+
+        let editMenu = NSMenu(title: "编辑")
+        editMenuItem.submenu = editMenu
+
+        let cutItem = NSMenuItem(title: "剪切", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        cutItem.keyEquivalentModifierMask = [.command]
+        editMenu.addItem(cutItem)
+
+        let copyItem = NSMenuItem(title: "复制", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        copyItem.keyEquivalentModifierMask = [.command]
+        editMenu.addItem(copyItem)
+
+        let pasteItem = NSMenuItem(title: "粘贴", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        pasteItem.keyEquivalentModifierMask = [.command]
+        editMenu.addItem(pasteItem)
+
+        editMenu.addItem(NSMenuItem.separator())
+
+        let selectAllItem = NSMenuItem(title: "全选", action: #selector(NSResponder.selectAll(_:)), keyEquivalent: "a")
+        selectAllItem.keyEquivalentModifierMask = [.command]
+        editMenu.addItem(selectAllItem)
+
+        return mainMenu
+    }
+
+    private func setupMainMenu() {
+        NSApplication.shared.mainMenu = createMainMenu()
     }
 
     private func setupStatusItem() {
@@ -93,17 +178,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         
         if let button = statusItem?.button {
             dlog("[DIAG] statusItem button obtained")
-            button.image = NSImage(systemSymbolName: "bubble.left.fill", accessibilityDescription: "OPC 伴侣")
+            let image = NSImage(systemSymbolName: "bubble.left.fill", accessibilityDescription: "OPC 伴侣")
+            image?.isTemplate = true
+            button.image = image
 
-            // 使用纯 click 而不是 sendAction
             button.target = self
             button.action = #selector(statusItemClicked)
-
-            // 右键菜单
-            button.menu = createStatusItemMenu()
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
             button.imagePosition = .imageLeading
-            
-            // 强制启用
+
             button.isEnabled = true
             button.isHidden = false
             
@@ -128,7 +211,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         dlog("===========================================")
         dlog("[EVENT] statusItemClicked!")
 
-        // 左键点击显示 Popover（简易面板）
+        let event = NSApp.currentEvent
+        if event?.type == .rightMouseUp {
+            let menu = createStatusItemMenu()
+            statusItem?.menu = menu
+            sender.performClick(nil)
+            statusItem?.menu = nil
+            return
+        }
+
         showPopover()
     }
 
@@ -140,7 +231,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             .environmentObject(state)
 
         let newPopover = NSPopover()
-        newPopover.contentSize = NSSize(width: 320, height: 200)
+        newPopover.contentSize = NSSize(width: 340, height: 420)
         newPopover.behavior = .transient
         newPopover.contentViewController = NSHostingController(rootView: popoverContent)
 
@@ -176,9 +267,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
 
         dlog("[DIAG] Creating NSPanel...")
-        let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 560),
-            styleMask: [.nonactivatingPanel, .titled, .fullSizeContentView, .utilityWindow, .closable],
+        // .fullSizeContentView 单独使用（不加 .titled 避免启动卡死，不加 .nonactivatingPanel 保证中文输入法可用）
+        let panel = HUDPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 760, height: 520),
+            styleMask: [.fullSizeContentView],
             backing: .buffered,
             defer: false
         )
@@ -188,18 +280,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         panel.titleVisibility = .hidden
         panel.isMovableByWindowBackground = true
         panel.level = .floating
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        panel.backgroundColor = NSColor.windowBackgroundColor
-        panel.isOpaque = true
+        // 不加入所有 Space：用户切换到其他 Space 时面板应消失而不是闪现
+        panel.collectionBehavior = [.fullScreenAuxiliary]
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
         panel.hasShadow = true
+        panel.hidesOnDeactivate = false
 
-        // 确保不自动释放
         panel.isReleasedWhenClosed = false
+        panel.delegate = self
 
-        // 不需要 delegate，用户点击关闭按钮即可隐藏
-        
+        let effectView = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: 760, height: 520))
+        effectView.material = .hudWindow
+        effectView.blendingMode = .behindWindow
+        effectView.state = .active
+        effectView.wantsLayer = true
+        effectView.layer?.cornerRadius = AppCornerRadius.panel
+        effectView.layer?.masksToBounds = true
+        effectView.autoresizingMask = [.width, .height]
+
+        hostingView.frame = effectView.bounds
+        hostingView.autoresizingMask = [.width, .height]
+        effectView.addSubview(hostingView)
+
         dlog("[DIAG] Setting panel contentView...")
-        panel.contentView = hostingView
+        panel.contentView = effectView
         
         self.panel = panel
         
@@ -214,105 +319,253 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func setupHotkey() {
         dlog("[DIAG] setupHotkey: START")
-        
-        dlog("[DIAG] Adding global monitor for events...")
-        
-        hotkeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged]) { [weak self] event in
-            self?.handleHotkey(event: event)
-        }
-        
-        dlog("[DIAG] Global monitor added: \(hotkeyMonitor != nil)")
-        
-        dlog("[DIAG] Adding local monitor for events...")
-        localHotkeyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged]) { [weak self] event in
-            // Cmd+D 关闭面板 (keyCode 2 = D)
+
+        // 全局热键用 Carbon（RegisterEventHotKey），不需要辅助功能权限
+        let optionMod = UInt32(optionKey)
+
+        // Option + Space (keyCode 49)：短按 toggle 面板，长按 ≥500ms 语音模式
+        CarbonHotkeyManager.shared.register(
+            keyCode: 49, modifiers: optionMod,
+            onPress: { [weak self] in self?.handleOptSpacePress() },
+            onRelease: { [weak self] in self?.handleOptSpaceRelease() }
+        )
+
+        // Option + ` (keyCode 50)：切换快捷输入条
+        CarbonHotkeyManager.shared.register(
+            keyCode: 50, modifiers: optionMod,
+            onPress: { [weak self] in self?.handleOptBacktickPress() }
+        )
+        dlog("[DIAG] Carbon hotkeys registered")
+
+        // Local monitor 保留：Esc 关面板 / Cmd+D 关面板（只在 app 内生效）
+        localHotkeyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { event in
             if event.keyCode == 2 && event.modifierFlags.contains(.command) {
                 dlog("[LOCAL-HOTKEY] Cmd+D detected - closing panel!")
-                DispatchQueue.main.async {
-                    AppDelegate.shared?.hidePanel()
-                }
+                DispatchQueue.main.async { AppDelegate.shared?.hidePanel() }
                 return nil
             }
-
-            self?.handleHotkey(event: event)
-            
-            if event.keyCode == 49 && event.modifierFlags.contains(.option) {
-                return nil
+            if event.keyCode == 53 {
+                if AppDelegate.shared?.quickCapturePanel?.isVisible == true {
+                    dlog("[LOCAL-HOTKEY] Escape - closing quick capture!")
+                    DispatchQueue.main.async { AppDelegate.shared?.hideQuickCapture() }
+                    return nil
+                }
+                if AppDelegate.shared?.panel?.isVisible == true {
+                    dlog("[LOCAL-HOTKEY] Escape - closing panel!")
+                    DispatchQueue.main.async { AppDelegate.shared?.hidePanel() }
+                    return nil
+                }
             }
             return event
         }
-        
-        dlog("[DIAG] Local monitor added: \(localHotkeyMonitor != nil)")
-        
         dlog("[DIAG] setupHotkey: END")
     }
 
-    private func handleHotkey(event: NSEvent) {
-        if event.keyCode == 49 && event.modifierFlags.contains(.option) {
-            if event.type == .keyDown && !event.isARepeat {
-                if hotkeyDownTime == nil {
-                    hotkeyDownTime = Date()
-                    isLongPressTriggered = false
-                    
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                        guard let self = self, self.hotkeyDownTime != nil else { return }
-                        self.isLongPressTriggered = true
-                        dlog("[HOTKEY] Long press detected!")
-                        if !self.panel!.isVisible {
-                            self.showPanel()
-                        }
-                        Task { @MainActor in
-                            let authorized = await VoiceService.shared.requestAuthorization()
-                            if authorized && !VoiceService.shared.isRecording {
-                                try? VoiceService.shared.startRecording()
-                            }
-                        }
-                    }
-                }
-            } else if event.type == .keyUp {
-                if let downTime = hotkeyDownTime {
-                    let duration = Date().timeIntervalSince(downTime)
-                    hotkeyDownTime = nil
-                    
-                    if duration < 0.5 && !isLongPressTriggered {
-                        dlog("[HOTKEY] Short press detected!")
-                        DispatchQueue.main.async {
-                            AppDelegate.shared?.togglePanel()
-                        }
-                    } else if isLongPressTriggered {
-                        dlog("[HOTKEY] Long press ended, stopping voice!")
-                        Task { @MainActor in
-                            if VoiceService.shared.isRecording {
-                                VoiceService.shared.stopRecording()
-                            }
-                        }
-                    }
-                }
+    // MARK: - Carbon hotkey handlers
+
+    private func handleOptSpacePress() {
+        let now = Date()
+        if now.timeIntervalSince(lastSpaceKeyDownAt) < 0.2 { return }
+        lastSpaceKeyDownAt = now
+        hotkeyDownTime = now
+        isLongPressTriggered = false
+
+        // 500ms 之后还在按 → 长按进入语音（用 Task.sleep 替代 asyncAfter 避免 Swift 6 isolation check）
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard let self = self, self.hotkeyDownTime != nil else { return }
+            self.isLongPressTriggered = true
+            dlog("[HOTKEY] Long press detected!")
+            if let p = self.panel, !p.isVisible { self.showPanel() }
+            let authorized = await VoiceService.shared.requestAuthorization()
+            if authorized && !VoiceService.shared.isRecording {
+                try? VoiceService.shared.startRecording()
             }
-        } else if event.type == .keyUp && event.keyCode == 49 {
-            hotkeyDownTime = nil
+        }
+    }
+
+    private func handleOptSpaceRelease() {
+        guard let downTime = hotkeyDownTime else { return }
+        let duration = Date().timeIntervalSince(downTime)
+        hotkeyDownTime = nil
+
+        if duration < 0.5 && !isLongPressTriggered {
+            dlog("[HOTKEY] Short press - toggle panel")
+            togglePanel()
+        } else if isLongPressTriggered {
+            dlog("[HOTKEY] Long press ended - stop voice")
             Task { @MainActor in
-                if isLongPressTriggered && VoiceService.shared.isRecording {
+                if VoiceService.shared.isRecording {
                     VoiceService.shared.stopRecording()
                 }
             }
         }
     }
 
+    private func handleOptBacktickPress() {
+        let now = Date()
+        if now.timeIntervalSince(lastQuickCaptureAt) < 0.3 { return }
+        lastQuickCaptureAt = now
+        dlog("[HOTKEY] Option+` - toggle quick capture")
+        toggleQuickCapture()
+    }
+
+    // 旧的 NSEvent global monitor 版本 handleHotkey 已被 Carbon 版替换
+
     private func startScheduledTaskCheck() {
         dlog("[DIAG] startScheduledTaskCheck: START")
-        
+
+        requestNotificationAuthorization()
+        state.checkScheduledTasks()
+
         scheduledCheckTimer = Timer.scheduledTimer(withTimeInterval: 60.0, repeats: true) { _ in
-            dlog("[TIMER] Scheduled task check tick")
+            MainActor.assumeIsolated {
+                AppState.shared.checkScheduledTasks()
+            }
         }
-        
+
         dlog("[DIAG] scheduledCheckTimer created")
         dlog("[DIAG] startScheduledTaskCheck: END")
     }
 
+    private func requestNotificationAuthorization() {
+        let center = UNUserNotificationCenter.current()
+        center.delegate = self
+        center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
+            dlog("[DIAG] Notification auth granted=\(granted) error=\(String(describing: error))")
+        }
+    }
+
     private func setupStateObservers() {
         dlog("[DIAG] setupStateObservers: START")
+
+        // 任何状态变化都刷新菜单栏外观
+        let incompletePub = state.$tasks.map { tasks in
+            tasks.contains { $0.status == .pending || $0.status == .inProgress }
+        }
+        state.$menuBarStatus
+            .combineLatest(state.$hasUnreadReminders, incompletePub)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] status, unread, hasIncomplete in
+                self?.updateStatusItemAppearance(status: status, hasUnread: unread || hasIncomplete)
+            }
+            .store(in: &cancellables)
+
+        updateStatusItemAppearance(
+            status: state.menuBarStatus,
+            hasUnread: state.hasUnreadReminders || state.hasIncompleteTasks
+        )
+
+        // 每秒刷新菜单栏文字（展示正在进行任务名 + 倒计时）
+        statusTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshStatusItemTitle() }
+        }
+        refreshStatusItemTitle()
+
         dlog("[DIAG] setupStateObservers: END")
+    }
+
+    private func refreshStatusItemTitle() {
+        guard let button = statusItem?.button else { return }
+        guard let active = state.activeTask,
+              active.status == .inProgress,
+              let remaining = active.remainingSeconds else {
+            button.attributedTitle = NSAttributedString(string: "")
+            button.title = ""
+            return
+        }
+
+        let truncated: String = active.title.count > 8
+            ? String(active.title.prefix(7)) + "…"
+            : active.title
+        let mm = remaining / 60
+        let ss = remaining % 60
+        let text = " \(truncated) \(String(format: "%02d:%02d", mm, ss))"
+
+        let color: NSColor
+        let weight: NSFont.Weight
+        switch state.menuBarStatus {
+        case .warning:
+            color = .systemYellow
+            weight = .semibold
+        case .overtime:
+            color = .systemRed
+            weight = .bold
+        default:
+            color = .labelColor
+            weight = .regular
+        }
+
+        let attributed = NSAttributedString(string: text, attributes: [
+            .foregroundColor: color,
+            .font: NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: weight)
+        ])
+        button.attributedTitle = attributed
+    }
+
+    private func updateStatusItemAppearance(status: MenuBarStatus, hasUnread: Bool) {
+        guard let button = statusItem?.button else {
+            dlog("[STATUS] updateStatusItemAppearance skipped — button is nil")
+            return
+        }
+
+        let symbolName = "bubble.left.fill"
+        if let color = Self.tintColor(for: status) {
+            let image = Self.tintedStatusImage(symbolName: symbolName, color: color)
+            button.image = image
+            button.contentTintColor = nil
+        } else {
+            let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: "OPC 伴侣")
+            image?.isTemplate = true
+            button.image = image
+            button.contentTintColor = nil
+        }
+
+        // 清除旧角标（兼容历史 YellowBadgeView 残留）
+        button.subviews.compactMap { $0 as? RedDotView }.forEach { $0.removeFromSuperview() }
+        button.subviews.compactMap { $0 as? YellowBadgeView }.forEach { $0.removeFromSuperview() }
+
+        // 红点 — 有待办任务或未读提醒时显示
+        if hasUnread {
+            let dotSize: CGFloat = 6
+            let frame = NSRect(
+                x: button.bounds.width - dotSize - 1,
+                y: button.bounds.height - dotSize - 2,
+                width: dotSize,
+                height: dotSize
+            )
+            let dot = RedDotView(frame: frame)
+            dot.wantsLayer = true
+            dot.layer?.backgroundColor = NSColor.systemRed.cgColor
+            dot.layer?.cornerRadius = dotSize / 2
+            dot.autoresizingMask = [.minXMargin, .minYMargin]
+            button.addSubview(dot)
+        }
+    }
+
+    private static func tintedStatusImage(symbolName: String, color: NSColor) -> NSImage? {
+        let config = NSImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+        guard let base = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
+            .withSymbolConfiguration(config) else { return nil }
+        let size = base.size
+        let tinted = NSImage(size: size, flipped: false) { rect in
+            base.draw(in: rect)
+            color.set()
+            rect.fill(using: .sourceAtop)
+            return true
+        }
+        tinted.isTemplate = false
+        return tinted
+    }
+
+    private static func tintColor(for status: MenuBarStatus) -> NSColor? {
+        switch status {
+        case .idle: return nil
+        case .focus: return .systemGreen
+        case .warning: return .systemYellow
+        case .overtime: return .systemRed
+        case .rest: return .systemBlue
+        }
     }
 
     func togglePanel() {
@@ -324,6 +577,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             if p.isVisible {
                 dlog("[ACTION] Hiding panel")
                 p.orderOut(nil)
+                state.isPanelVisible = false
             } else {
                 dlog("[ACTION] Showing panel")
                 showPanel()
@@ -340,7 +594,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         dlog("[ACTION] hidePanel called")
         if let p = panel, p.isVisible {
             p.orderOut(nil)
+            state.isPanelVisible = false
             dlog("[ACTION] Panel hidden")
+        }
+        // 关 panel 时清理可能挂起的资源：录音 + Notion 确认 continuation
+        if VoiceService.shared.isRecording {
+            VoiceService.shared.stopRecording()
+        }
+        if NotionConfirmManager.shared.showConfirmation {
+            NotionConfirmManager.shared.cancel()
         }
     }
 
@@ -361,39 +623,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         
         // 确保 panel 不会在关闭时释放
         p.isReleasedWhenClosed = false
-        
-        // 设置位置到右上角（安全位置）
-        if let screen = NSScreen.main {
-            // 在菜单栏下方，从左到右排列
-            let newX = screen.frame.width - p.frame.width - 50
-            let newY = screen.frame.height - p.frame.height - 25
+
+        // 居中到当前鼠标所在屏幕
+        let mouseLocation = NSEvent.mouseLocation
+        let targetScreen = NSScreen.screens.first { NSMouseInRect(mouseLocation, $0.frame, false) }
+            ?? NSScreen.main
+        if let screen = targetScreen {
+            let visible = screen.visibleFrame
+            let newX = visible.origin.x + (visible.width - p.frame.width) / 2
+            let newY = visible.origin.y + (visible.height - p.frame.height) / 2
             p.setFrameOrigin(NSPoint(x: newX, y: newY))
-            dlog("[ACTION] Panel at top-right: (\(newX), \(newY))")
+            dlog("[ACTION] Panel centered at (\(newX), \(newY)) on screen \(screen.localizedName)")
         }
         
-        // 显示面板 - 尝试多种方法
-        dlog("[ACTION] Calling orderFront(nil)...")
-        p.orderFront(nil)
-        dlog("[ACTION] After orderFront: isVisible=\(p.isVisible)")
-        
-        dlog("[ACTION] Calling makeKeyAndOrderFront(nil)...")
-        p.makeKeyAndOrderFront(nil)
-        dlog("[ACTION] After makeKeyAndOrderFront: isVisible=\(p.isVisible)")
-        
-        // 强制显示
-        dlog("[ACTION] Calling orderFrontRegardless...")
-        p.orderFrontRegardless()
-        dlog("[ACTION] After orderFrontRegardless: isVisible=\(p.isVisible)")
-        
-        // 尝试设置 alpha
-        p.alphaValue = 1.0
-        
-        // 尝试设为 key window
-        p.makeKey()
-        
-        // 激活应用
-        dlog("[ACTION] Activating NSApplication...")
+        // 关键顺序：先 activate app，再让 panel becomeKey，否则 macOS IME 不工作
         NSApplication.shared.activate(ignoringOtherApps: true)
+        p.alphaValue = 1.0
+        p.makeKeyAndOrderFront(nil)
+        state.isPanelVisible = true
         
         // 列出 NSApp 所有 windows
         dlog("[INFO] NSApp windows count: \(NSApplication.shared.windows.count)")
@@ -404,8 +651,87 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         dlog("===========================================")
     }
 
+    func toggleQuickCapture() {
+        if let p = quickCapturePanel, p.isVisible {
+            hideQuickCapture()
+        } else {
+            showQuickCapture()
+        }
+    }
+
+    func showQuickCapture() {
+        if quickCapturePanel == nil {
+            quickCapturePanel = makeQuickCapturePanel()
+        }
+        guard let p = quickCapturePanel else { return }
+
+        let mouseLocation = NSEvent.mouseLocation
+        let targetScreen = NSScreen.screens.first { NSMouseInRect(mouseLocation, $0.frame, false) }
+            ?? NSScreen.main
+        if let screen = targetScreen {
+            let visible = screen.visibleFrame
+            let x = visible.origin.x + (visible.width - p.frame.width) / 2
+            let y = visible.origin.y + visible.height - p.frame.height - 80
+            p.setFrameOrigin(NSPoint(x: x, y: y))
+        }
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        p.alphaValue = 1.0
+        p.makeKeyAndOrderFront(nil)
+    }
+
+    func hideQuickCapture() {
+        quickCapturePanel?.orderOut(nil)
+    }
+
+    private func makeQuickCapturePanel() -> NSPanel {
+        let panel = QuickCapturePanel(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 48),
+            styleMask: [.fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        panel.titlebarAppearsTransparent = true
+        panel.titleVisibility = .hidden
+        panel.level = .popUpMenu
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.isReleasedWhenClosed = false
+        panel.hidesOnDeactivate = false
+        panel.delegate = self
+
+        let effect = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: 520, height: 48))
+        effect.material = .hudWindow
+        effect.blendingMode = .behindWindow
+        effect.state = .active
+        effect.wantsLayer = true
+        effect.layer?.cornerRadius = 12
+        effect.layer?.masksToBounds = true
+        effect.autoresizingMask = [.width, .height]
+
+        let view = QuickCaptureView(
+            autoStartVoice: true,
+            onSubmit: { [weak self] text, inputMode in
+                let source: Note.Source = (inputMode == .voice) ? .hotkeyVoice : .hotkeyText
+                AppState.shared.captureNote(content: text, source: source, inputMode: inputMode)
+                self?.hideQuickCapture()
+            },
+            onCancel: { [weak self] in
+                self?.hideQuickCapture()
+            }
+        )
+        let host = NSHostingView(rootView: view.environmentObject(state))
+        host.frame = effect.bounds
+        host.autoresizingMask = [.width, .height]
+        effect.addSubview(host)
+
+        panel.contentView = effect
+        return panel
+    }
+
     @MainActor func resetTimerNotifications() {
         dlog("[DIAG] resetTimerNotifications called")
+        state.resetTimerFlags()
     }
 
     // MARK: - NSWindowDelegate
@@ -414,13 +740,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // 只隐藏面板，不释放，这样下次可以快速显示
         if let p = panel {
             p.orderOut(nil)
+            state.isPanelVisible = false
             dlog("[DIAG] Panel hidden (not released)")
+        }
+    }
+
+    func windowDidResignKey(_ notification: Notification) {
+        guard let closed = notification.object as? NSWindow else { return }
+        if closed === panel {
+            dlog("[EVENT] Main panel resigned key - closing")
+            hidePanel()
+        } else if closed === quickCapturePanel {
+            dlog("[EVENT] QuickCapture resigned key - closing")
+            hideQuickCapture()
         }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         dlog("[DIAG] applicationShouldTerminateAfterLastWindowClosed: false")
         return false
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        dlog("[DIAG] applicationWillTerminate - cleaning up resources")
+        scheduledCheckTimer?.invalidate()
+        scheduledCheckTimer = nil
+        statusTimer?.invalidate()
+        statusTimer = nil
+        CarbonHotkeyManager.shared.unregisterAll()
+        if let monitor = localHotkeyMonitor {
+            NSEvent.removeMonitor(monitor)
+            localHotkeyMonitor = nil
+        }
+        if VoiceService.shared.isRecording {
+            VoiceService.shared.stopRecording()
+        }
+        if NotionConfirmManager.shared.showConfirmation {
+            NotionConfirmManager.shared.cancel()
+        }
+        cancellables.removeAll()
     }
 
     private func createStatusItemMenu() -> NSMenu {
@@ -436,6 +794,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         settingsItem.target = self
         menu.addItem(settingsItem)
 
+        let debugItem = NSMenuItem(title: "调试：循环图标颜色", action: #selector(menuDebugCycleStatus), keyEquivalent: "")
+        debugItem.target = self
+        menu.addItem(debugItem)
+
+        let debugDotItem = NSMenuItem(title: "调试：切换红点", action: #selector(menuDebugToggleDot), keyEquivalent: "")
+        debugDotItem.target = self
+        menu.addItem(debugDotItem)
+
         menu.addItem(NSMenuItem.separator())
 
         let quitItem = NSMenuItem(title: "退出", action: #selector(menuQuit), keyEquivalent: "q")
@@ -443,6 +809,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         menu.addItem(quitItem)
 
         return menu
+    }
+
+    @objc private func menuDebugCycleStatus() {
+        // 末尾停在 focus（绿色），避免循环回 idle 导致"看起来没变色"
+        let sequence: [MenuBarStatus] = [.idle, .focus, .warning, .overtime, .rest, .focus]
+        Task { @MainActor in
+            for status in sequence {
+                state.menuBarStatus = status
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            }
+        }
+    }
+
+    @objc private func menuDebugToggleDot() {
+        state.hasUnreadReminders.toggle()
     }
 
     @objc private func menuOpenPanel() {
@@ -459,5 +840,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func menuQuit() {
         dlog("[MENU] Quit")
         NSApplication.shared.terminate(nil)
+    }
+
+    @objc private func handleSpaceChange() {
+        dlog("[EVENT] activeSpaceDidChange - closing any visible popups")
+        if panel?.isVisible == true { hidePanel() }
+        if quickCapturePanel?.isVisible == true { hideQuickCapture() }
+    }
+}
+
+// MARK: - 通知点击响应
+
+extension AppDelegate: UNUserNotificationCenterDelegate {
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        // 先完成 delegate 合约，再异步推进 UI。避免把 completionHandler 捕获进 @MainActor closure
+        completionHandler()
+        Task { @MainActor in
+            AppDelegate.shared?.showPanel()
+            AppState.shared.selectedTab = .chat
+            AppState.shared.hasUnreadReminders = false
+        }
+    }
+
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        // app 在前台时也展示横幅（macOS 默认会吞掉）
+        completionHandler([.banner, .sound])
     }
 }

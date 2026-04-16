@@ -1,14 +1,12 @@
 import AppKit
 
-print("Main: Starting application...")
+// 第一件事：安装崩溃捕获，以便后续任何阶段的异常/信号都进日志
+OPCLogger.shared.installCrashHandler()
+logInfo("main", "OPCCompanion starting")
 
-// 创建 delegate
 let delegate = AppDelegate()
 NSApplication.shared.delegate = delegate
+logInfo("main", "Delegate set")
 
-// 确保 delegate 被正确设置
-print("Main: Delegate set to \(NSApplication.shared.delegate)")
-
-// 运行应用
 let result = NSApplicationMain(CommandLine.argc, CommandLine.unsafeArgv)
-print("Main: NSApplicationMain returned \(result)")
+logInfo("main", "NSApplicationMain returned \(result)")

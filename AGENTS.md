@@ -9,8 +9,8 @@ macOS 原生菜单栏 AI 助手应用。Swift + SwiftUI + AppKit 混合架构，
 - **语言：** Swift 6.3
 - **UI：** SwiftUI（视图层）+ AppKit（NSPanel, NSStatusItem, NSEvent）
 - **语音：** Speech framework (SFSpeechRecognizer) + AVFoundation (AVSpeechSynthesizer)
-- **AI 后端：** Codex CLI (`/Users/shiye/.local/bin/Codex`)，通过 Process 子进程调用
-- **Notion：** 通过 Codex CLI 的 `--mcp-config` 加载 Notion MCP Server
+- **AI 后端：** Claude CLI (`/Users/shiye/.local/bin/claude`)，通过 Process 子进程调用
+- **Notion：** 通过 Claude CLI 的 `--mcp-config` 加载 Notion MCP Server
 - **构建：** Swift Package Manager → build.sh 打包为 .app bundle
 - **最低系统：** macOS 15.0+
 
@@ -23,12 +23,12 @@ macOS 原生菜单栏 AI 助手应用。Swift + SwiftUI + AppKit 混合架构，
 
 两者共享同一个 AppState（@Observable / ObservableObject），数据始终同步。
 
-### Codex CLI 调用规范
+### Claude CLI 调用规范
 
 ```swift
 // 必须使用以下参数组合
 let process = Process()
-process.executableURL = URL(fileURLWithPath: "/Users/shiye/.local/bin/Codex")
+process.executableURL = URL(fileURLWithPath: "/Users/shiye/.local/bin/claude")
 process.arguments = [
     "-p",                                          // 非交互模式
     "--system-prompt", systemPrompt,               // 自定义提示词
@@ -72,7 +72,7 @@ Sources/OPCCompanion/
 
 - 使用 Swift Concurrency（async/await, @MainActor）
 - UI 更新必须在 @MainActor
-- Codex CLI 调用在 Task {} 中异步执行
+- Claude CLI 调用在 Task {} 中异步执行
 - 语音识别回调通过 @MainActor 回到主线程
 
 ### UI 规范
@@ -86,7 +86,7 @@ Sources/OPCCompanion/
 
 ### 错误处理
 
-- Codex CLI 调用失败 → 在对话中显示友好错误消息，不 crash
+- Claude CLI 调用失败 → 在对话中显示友好错误消息，不 crash
 - Notion 连接失败 → 设置页状态变红，对话中提示用户检查配置
 - 语音权限拒绝 → 弹出引导用户去系统偏好设置开启
 - 所有错误包含定位信息（文件名 + 函数名 + 错误描述）
@@ -130,10 +130,10 @@ build.sh 负责：
 
 ### Notion 写操作确认流程
 
-1. ChatEngine 解析 Codex 回复中的 `[ACTION:notion:...]`
+1. ChatEngine 解析 Claude 回复中的 `[ACTION:notion:...]`
 2. 将 action 信息传递给 UI 层
 3. UI 显示确认卡片（内嵌在对话流中，不是弹窗）
-4. 用户点击"确认" → ChatEngine 再次调用 Codex CLI 执行操作
+4. 用户点击"确认" → ChatEngine 再次调用 Claude CLI 执行操作
 5. 用户点击"取消" → 在对话中显示"已取消"
 
 ### 定时任务调度

@@ -18,6 +18,17 @@ public final class AppState: ObservableObject {
     // 定时任务
     @Published public var scheduledTasks: [ScheduledTask] = []
 
+    // 随手记
+    @Published public var notes: [Note] = []
+
+    public var unreadNoteCount: Int {
+        notes.filter { $0.status == .pending }.count
+    }
+
+    public var hasIncompleteTasks: Bool {
+        tasks.contains { $0.status == .pending || $0.status == .inProgress }
+    }
+
     // 全局配置
     @Published public var config: AppConfig = AppConfig()
     @Published public var systemPrompt: String = ""
@@ -40,18 +51,40 @@ public final class AppState: ObservableObject {
     @Published public var lastSummary: String = ""
     @Published public var triggeredTasksToday: Set<String> = []  // 今天已触发的任务 ID
     @Published public var lastTriggerDate: String = ""  // 上次检查日期
+    private var lastCheckTimestamp: TimeInterval = 0    // 系统时间回拨防护
+
+    // 计时提醒防重触发标志
+    @Published public var timerWarningFired = false
+    @Published public var timerOvertimeFired = false
+
+    // 一键整理防重入
+    @Published public var isOrganizing = false
 
     private var cancellables = Set<AnyCancellable>()
     private var globalTimer: Timer?
 
     public init() {
         loadData()
+        // 启动时加载凭证（secrets.json，必要时从旧 Keychain 迁移）
+        CredentialCache.shared.loadIfNeeded()
+        migrateLegacyPlainTextAPIKey()
         startGlobalTimer()
+    }
+
+    /// 兼容历史：早期 config.json 里的明文 apiKey 搬到 secrets.json 并清空。
+    private func migrateLegacyPlainTextAPIKey() {
+        let plaintext = config.apiConfig.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !plaintext.isEmpty else { return }
+        CredentialCache.shared.setMinimaxAPIKey(plaintext)
+        config.apiConfig.apiKey = ""
+        saveConfig()
     }
 
     private func startGlobalTimer() {
         globalTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
+            // Timer 的 block 在 main runloop（main thread）执行。
+            // assumeIsolated 让 Swift 6 信任当前已在 MainActor，无额外 hop。
+            MainActor.assumeIsolated {
                 self?.tick()
             }
         }
@@ -61,6 +94,11 @@ public final class AppState: ObservableObject {
         guard let activeTask = self.activeTask,
               let timerEnd = activeTask.timerEnd,
               activeTask.status == .inProgress else {
+            if menuBarStatus != .idle && menuBarStatus != .rest {
+                menuBarStatus = .idle
+            }
+            timerWarningFired = false
+            timerOvertimeFired = false
             return
         }
 
@@ -69,38 +107,98 @@ public final class AppState: ObservableObject {
         let remainingSeconds = Int(timerEnd.timeIntervalSince(now))
 
         if remainingSeconds <= 0 {
-            if self.menuBarStatus != .overtime {
-                self.menuBarStatus = .overtime
-                self.sendNotification(title: "任务结束", body: "任务 [\(activeTask.title)] 已超时，请确认是否完成。")
-                let msg = Message(role: .system, content: "⏰ 任务 [\(activeTask.title)] 已超时！")
-                self.appendMessage(msg)
+            if !timerOvertimeFired {
+                menuBarStatus = .overtime
+                timerOvertimeFired = true
+                sendNotification(title: "任务结束", body: "任务 [\(activeTask.title)] 已超时，请确认是否完成。")
+                appendMessage(Message(role: .system, content: "⏰ 任务 [\(activeTask.title)] 已超时！"))
+            } else if menuBarStatus != .overtime {
+                menuBarStatus = .overtime
             }
         } else if totalSeconds > 0, Double(remainingSeconds) <= Double(totalSeconds) * 0.2 {
-            if self.menuBarStatus != .warning && self.menuBarStatus != .overtime {
-                self.menuBarStatus = .warning
-                self.sendNotification(title: "时间提醒", body: "任务 [\(activeTask.title)] 剩余时间不足 20%。")
-                let msg = Message(role: .system, content: "⚠️ 任务 [\(activeTask.title)] 剩余时间不足 20%。")
-                self.appendMessage(msg)
+            if !timerWarningFired {
+                menuBarStatus = .warning
+                timerWarningFired = true
+                sendNotification(title: "时间提醒", body: "任务 [\(activeTask.title)] 剩余时间不足 20%。")
+                appendMessage(Message(role: .system, content: "⚠️ 任务 [\(activeTask.title)] 剩余时间不足 20%。"))
+            } else if menuBarStatus != .warning && menuBarStatus != .overtime {
+                menuBarStatus = .warning
             }
         } else {
-            if self.menuBarStatus != .focus {
-                self.menuBarStatus = .focus
+            if menuBarStatus != .focus {
+                menuBarStatus = .focus
             }
         }
 
-        // 强制刷新依赖 activeTask 的 UI
-        self.objectWillChange.send()
+        objectWillChange.send()
+    }
+
+    public func resetTimerFlags() {
+        timerWarningFired = false
+        timerOvertimeFired = false
+    }
+
+    /// 测试入口：直接调用 private tick() 一次
+    public func tickForTesting() {
+        tick()
+    }
+
+    public func checkScheduledTasks(now: Date = Date()) {
+        let calendar = Calendar.current
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        let today = dateFormatter.string(from: now)
+
+        // 防系统时间回拨：若 now 早于上次检查 60s 以上，认为时间被改，重置触发集合
+        let nowTimestamp = now.timeIntervalSince1970
+        if lastCheckTimestamp > 0 && nowTimestamp + 60 < lastCheckTimestamp {
+            triggeredTasksToday.removeAll()
+            lastTriggerDate = ""
+        }
+        lastCheckTimestamp = nowTimestamp
+
+        if lastTriggerDate != today {
+            triggeredTasksToday.removeAll()
+            lastTriggerDate = today
+        }
+
+        let currentWeekday = calendar.component(.weekday, from: now)
+        let hm = DateFormatter()
+        hm.dateFormat = "HH:mm"
+        let nowString = hm.string(from: now)
+
+        for task in scheduledTasks where task.enabled {
+            guard !triggeredTasksToday.contains(task.id.uuidString) else { continue }
+            guard Self.scheduleMatches(task.schedule, weekday: currentWeekday) else { continue }
+            guard task.time <= nowString else { continue }
+
+            sendNotification(title: task.name, body: task.prompt)
+            appendMessage(Message(role: .system, content: "⏰ \(task.name) — \(task.prompt)"))
+            hasUnreadReminders = true
+            triggeredTasksToday.insert(task.id.uuidString)
+        }
+    }
+
+    private static func scheduleMatches(_ schedule: TaskSchedule, weekday: Int) -> Bool {
+        switch schedule {
+        case .daily: return true
+        case .weekly(let w): return w.rawValue == weekday
+        case .cron: return false
+        }
     }
 
     public func sendNotification(title: String, body: String) {
+        guard !Self.isRunningTests else { return }
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         content.sound = .default
-        
+
         let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request)
     }
+
+    private static let isRunningTests: Bool = NSClassFromString("XCTestCase") != nil
 
     private func loadData() {
         // 加载配置
@@ -118,20 +216,211 @@ public final class AppState: ObservableObject {
             saveSystemPrompt()
         }
 
-        // 加载当日任务
-        if let tasksData = loadFile(named: "pinned.json"),
+        // 加载当日任务（新路径 tasks/pinned.json，兼容旧路径 pinned.json）
+        if let tasksData = loadFile(named: Self.pinnedTasksPath) ?? loadFile(named: "pinned.json"),
            let tasks = try? JSONDecoder().decode([TaskItem].self, from: tasksData) {
             self.tasks = tasks
         }
 
-        // 加载定时任务
-        if let scheduledData = loadFile(named: "scheduled.json"),
+        // 加载定时任务（新路径 timers/scheduled.json，兼容旧路径 scheduled.json）
+        if let scheduledData = loadFile(named: Self.scheduledTasksPath) ?? loadFile(named: "scheduled.json"),
            let scheduled = try? JSONDecoder().decode([ScheduledTask].self, from: scheduledData) {
             self.scheduledTasks = scheduled
         }
 
         // 加载历史对话
         loadConversationHistory()
+
+        // 加载随手记
+        notes = InboxService.shared.loadAll()
+    }
+
+    /// 把对话流中的某条消息转成随手记。消息会从 UI 隐藏，且 ChatEngine 后续不再带入上下文。
+    /// 若是用户消息，紧邻其后的 assistant 回复也会一同隐藏，保持对话流的连贯性（PRD-QC §3.2.4）。
+    public func convertMessageToNote(_ message: Message) {
+        guard let idx = messages.firstIndex(where: { $0.id == message.id }) else { return }
+        let content = messages[idx].content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !content.isEmpty else { return }
+        captureNote(content: content, source: .convertFromMessage, inputMode: messages[idx].inputMode)
+        messages[idx].hidden = true
+
+        if messages[idx].role == .user {
+            let next = idx + 1
+            if next < messages.count, messages[next].role == .assistant, !messages[next].hidden {
+                messages[next].hidden = true
+            }
+        }
+
+        appendMessage(Message(role: .system, content: "📥 已转随手记：\(content)"))
+    }
+
+    public func captureNote(content: String, source: Note.Source, inputMode: InputMode = .text) {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let note = Note(content: trimmed, source: source, inputMode: inputMode)
+        notes.append(note)
+        InboxService.shared.append(note)
+    }
+
+    public func markNoteDone(_ note: Note) {
+        guard let idx = notes.firstIndex(where: { $0.id == note.id }) else { return }
+        notes[idx].status = .done
+        notes[idx].processedAt = Date()
+        InboxService.shared.saveAll(notes)
+    }
+
+    public func deleteNote(_ note: Note) {
+        notes.removeAll { $0.id == note.id }
+        InboxService.shared.saveAll(notes)
+    }
+
+    /// 一键整理：把待处理随手记列表发给 AI，请它分类/建议优先级，结果展示在对话流。
+    public func organizePendingNotes() async {
+        guard !isOrganizing else { return }
+        isOrganizing = true
+        defer { isOrganizing = false }
+
+        let pending = notes.filter { $0.status == .pending }
+        guard !pending.isEmpty else {
+            appendMessage(Message(role: .system, content: "📥 没有待处理的随手记"))
+            return
+        }
+        let lines = pending.enumerated().map { idx, n in "\(idx + 1). \(n.content)" }.joined(separator: "\n")
+        let prompt = """
+        以下是我累积的随手记，请按主题分类并建议每条的优先级（高/中/低）。给我简短的整理结论，3 句话以内：
+
+        \(lines)
+        """
+        selectedTab = .chat
+        appendMessage(Message(role: .user, content: "整理一下我的随手记"))
+        let placeholder = Message(role: .assistant, content: "")
+        appendMessage(placeholder)
+        let msgID = placeholder.id
+
+        do {
+            let response = try await ChatEngine.shared.sendMessage(
+                prompt,
+                systemPrompt: systemPrompt,
+                useConversationHistory: false,
+                onAssistantDelta: { delta in
+                    Task { @MainActor in
+                        if let idx = AppState.shared.messages.firstIndex(where: { $0.id == msgID }) {
+                            AppState.shared.messages[idx].content += delta
+                        }
+                    }
+                }
+            )
+            if let idx = messages.firstIndex(where: { $0.id == msgID }), messages[idx].content != response {
+                messages[idx].content = response
+            }
+        } catch {
+            if let idx = messages.firstIndex(where: { $0.id == msgID }) {
+                messages[idx].role = .system
+                messages[idx].content = "整理失败：\(error.localizedDescription)"
+            }
+        }
+    }
+
+    /// 把随手记推送到 Notion inbox 数据库（默认用 Name 作为 title 属性）
+    /// 返回 true 表示推送成功；失败时 note 状态保持 pending，便于重试。
+    @discardableResult
+    public func pushNoteToNotion(_ note: Note) async -> Bool {
+        guard let dbId = config.notionDatabaseIds.inbox, !dbId.isEmpty else {
+            appendMessage(Message(role: .system, content: "✗ Notion 推送失败：未在设置中绑定收件箱数据库"))
+            return false
+        }
+        let properties: [String: Any] = [
+            "Name": [
+                "title": [
+                    ["text": ["content": note.content]]
+                ]
+            ]
+        ]
+        guard let propertiesData = try? JSONSerialization.data(withJSONObject: properties, options: []) else {
+            appendMessage(Message(role: .system, content: "✗ Notion 推送失败：序列化错误"))
+            return false
+        }
+        do {
+            let respData = try await NotionService.shared.createPage(databaseId: dbId, propertiesData: propertiesData)
+            let json = (try? JSONSerialization.jsonObject(with: respData) as? [String: Any]) ?? [:]
+            let pageId = json["id"] as? String
+            if let idx = notes.firstIndex(where: { $0.id == note.id }) {
+                notes[idx].status = .done
+                notes[idx].processedAt = Date()
+                notes[idx].notionPageId = pageId
+                InboxService.shared.saveAll(notes)
+            }
+            appendMessage(Message(role: .system, content: "✓ 已推送到 Notion：\(note.content)"))
+            return true
+        } catch {
+            appendMessage(Message(role: .system, content: "✗ Notion 推送失败：\(error.localizedDescription)"))
+            return false
+        }
+    }
+
+    // MARK: - Timer / Task 操作 API（供 ToolExecutor 调用）
+
+    @discardableResult
+    public func startTimer(task title: String, minutes: Int) -> TaskItem {
+        let task = TaskItem(
+            title: title,
+            status: .inProgress,
+            timerMinutes: minutes,
+            timerStart: Date(),
+            timerEnd: Date().addingTimeInterval(TimeInterval(minutes * 60))
+        )
+        tasks.append(task)
+        activeTask = task
+        menuBarStatus = .focus
+        resetTimerFlags()
+        saveTasks()
+        appendMessage(Message(role: .system, content: "✓ 已启动计时：\(title) · \(minutes) 分钟"))
+        return task
+    }
+
+    public func completeCurrentTimer(note: String? = nil) {
+        guard let active = activeTask,
+              let idx = tasks.firstIndex(where: { $0.id == active.id }) else { return }
+        tasks[idx].status = .done
+        activeTask = nil
+        menuBarStatus = .idle
+        resetTimerFlags()
+        saveTasks()
+        let detail = note.map { " — \($0)" } ?? ""
+        appendMessage(Message(role: .system, content: "✓ 已完成：\(active.title)\(detail)"))
+    }
+
+    public func extendCurrentTimer(by minutes: Int) {
+        guard let active = activeTask,
+              let idx = tasks.firstIndex(where: { $0.id == active.id }) else { return }
+        let base = tasks[idx].timerEnd ?? Date()
+        tasks[idx].timerEnd = base.addingTimeInterval(TimeInterval(minutes * 60))
+        tasks[idx].extensions += 1
+        activeTask = tasks[idx]
+        menuBarStatus = .focus
+        resetTimerFlags()
+        saveTasks()
+        appendMessage(Message(role: .system, content: "✓ 已延长 \(minutes) 分钟"))
+    }
+
+    @discardableResult
+    public func addPinnedTask(title: String) -> TaskItem {
+        let task = TaskItem(title: title, status: .pending)
+        tasks.append(task)
+        saveTasks()
+        return task
+    }
+
+    public func openInbox() {
+        selectedTab = .inbox
+    }
+
+    public func convertNoteToTask(_ note: Note) {
+        let task = TaskItem(title: note.content, status: .pending)
+        tasks.append(task)
+        saveTasks()
+        markNoteDone(note)
+        appendMessage(Message(role: .system, content: "✓ 已转任务：\(note.content)"))
     }
 
     private func loadFile(named filename: String) -> Data? {
@@ -150,13 +439,25 @@ public final class AppState: ObservableObject {
     }
 
     public func saveTasks() {
-        let url = Self.dataDirectory.appendingPathComponent("pinned.json")
+        let url = Self.dataDirectory.appendingPathComponent(Self.pinnedTasksPath)
+        Self.ensureParentDirectory(url)
         try? JSONEncoder().encode(tasks).write(to: url)
     }
 
     public func saveScheduledTasks() {
-        let url = Self.dataDirectory.appendingPathComponent("scheduled.json")
+        let url = Self.dataDirectory.appendingPathComponent(Self.scheduledTasksPath)
+        Self.ensureParentDirectory(url)
         try? JSONEncoder().encode(scheduledTasks).write(to: url)
+    }
+
+    private static let pinnedTasksPath = "tasks/pinned.json"
+    private static let scheduledTasksPath = "timers/scheduled.json"
+
+    private static func ensureParentDirectory(_ url: URL) {
+        let parent = url.deletingLastPathComponent()
+        if !FileManager.default.fileExists(atPath: parent.path) {
+            try? FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        }
     }
 
     private func loadConversationHistory() {
@@ -178,8 +479,8 @@ public final class AppState: ObservableObject {
             }
 
             let dayMessages = lines.compactMap { line -> Message? in
-                guard !line.isEmpty else { return nil }
-                return try? JSONDecoder().decode(Message.self, from: line.data(using: .utf8)!)
+                guard !line.isEmpty, let data = line.data(using: .utf8) else { return nil }
+                return try? JSONDecoder().decode(Message.self, from: data)
             }
 
             if !dayMessages.isEmpty {
@@ -195,6 +496,7 @@ public final class AppState: ObservableObject {
     }
 
     private func saveTodayMessages() {
+        guard !Self.isRunningTests else { return }
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy-MM-dd"
         let dateString = dateFormatter.string(from: Date())
@@ -209,14 +511,17 @@ public final class AppState: ObservableObject {
         }
 
         if let data = try? JSONEncoder().encode(messages.last),
-           let line = String(data: data, encoding: .utf8) {
+           let line = String(data: data, encoding: .utf8),
+           let newline = "\n".data(using: .utf8),
+           let lineData = line.data(using: .utf8) {
             let fileManager = FileManager.default
             if fileManager.fileExists(atPath: url.path) {
-                let handle = try? FileHandle(forWritingTo: url)
-                handle?.seekToEndOfFile()
-                handle?.write("\n".data(using: .utf8)!)
-                handle?.write(line.data(using: .utf8)!)
-                handle?.closeFile()
+                if let handle = try? FileHandle(forWritingTo: url) {
+                    handle.seekToEndOfFile()
+                    handle.write(newline)
+                    handle.write(lineData)
+                    try? handle.close()
+                }
             } else {
                 try? line.write(to: url, atomically: true, encoding: .utf8)
             }
@@ -274,7 +579,11 @@ public final class AppState: ObservableObject {
         let summaryPrompt = "生成今日工作总结：今日完成 \(taskCount) 个任务，对话 \(messageCount) 条，任务列表：\(taskList)。请用简洁中文总结，100字以内。"
 
         do {
-            let summary = try await ChatEngine.shared.sendMessage(summaryPrompt, systemPrompt: AppState.defaultSystemPrompt)
+            let summary = try await ChatEngine.shared.sendMessage(
+                summaryPrompt,
+                systemPrompt: AppState.defaultSystemPrompt,
+                useConversationHistory: false
+            )
             lastSummary = summary
             lastSummaryDate = today
             saveDailySummary(summary, date: today)
@@ -299,12 +608,14 @@ public final class AppState: ObservableObject {
 
 public enum AppTab: String, CaseIterable {
     case chat
+    case inbox
     case history
     case settings
 
     var title: String {
         switch self {
         case .chat: return "对话"
+        case .inbox: return "收件箱"
         case .history: return "历史"
         case .settings: return "设置"
         }
@@ -313,6 +624,7 @@ public enum AppTab: String, CaseIterable {
     var icon: String {
         switch self {
         case .chat: return "bubble.left.and.text.bubble.right"
+        case .inbox: return "tray"
         case .history: return "clock"
         case .settings: return "gear"
         }

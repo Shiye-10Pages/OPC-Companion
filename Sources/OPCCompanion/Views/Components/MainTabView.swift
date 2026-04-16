@@ -6,54 +6,54 @@ struct MainTabView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Tab 内容
             Group {
                 switch selectedTab {
-                case .chat:
-                    ChatView()
-                case .history:
-                    HistoryView()
-                case .settings:
-                    SettingsView()
+                case .chat: ChatView()
+                case .inbox: InboxView()
+                case .history: HistoryView()
+                case .settings: SettingsView()
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .transition(.opacity)
+            .id(selectedTab)
 
-            // Tab 栏 - 新设计
             NewTabBar(selectedTab: $selectedTab) { tab in
-                withAnimation(AppAnimations.smooth) {
+                withAnimation(.easeInOut(duration: 0.18)) {
                     selectedTab = tab
                     state.selectedTab = tab
                 }
             }
         }
         .onChange(of: state.selectedTab) { _, newValue in
-            selectedTab = newValue
+            withAnimation(.easeInOut(duration: 0.18)) {
+                selectedTab = newValue
+            }
         }
     }
 }
 
-// MARK: - 新 Tab 栏设计
+// 全宽 Tab 栏：底部横条 + Divider + 居中按钮组
 struct NewTabBar: View {
     @Binding var selectedTab: AppTab
     let onSelect: (AppTab) -> Void
 
     var body: some View {
-        HStack(spacing: 6) {
-            ForEach(AppTab.allCases, id: \.self) { tab in
-                TabButton(
-                    tab: tab,
-                    isSelected: selectedTab == tab,
-                    action: { onSelect(tab) }
-                )
+        VStack(spacing: 0) {
+            Divider()
+            HStack(spacing: 4) {
+                ForEach(AppTab.allCases, id: \.self) { tab in
+                    TabButton(
+                        tab: tab,
+                        isSelected: selectedTab == tab,
+                        action: { onSelect(tab) }
+                    )
+                }
             }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(
-            Capsule()
-                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.6))
-        )
+        .background(.regularMaterial)
     }
 }
 
@@ -61,33 +61,36 @@ struct TabButton: View {
     let tab: AppTab
     let isSelected: Bool
     let action: () -> Void
+    @State private var hovering = false
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 6) {
                 Image(systemName: isSelected ? tab.iconFilled : tab.icon)
-                    .font(.system(size: 14, weight: .medium))
-
+                    .font(.system(size: 13, weight: .medium))
                 Text(tab.title)
-                    .font(.system(size: 12, weight: isSelected ? .medium : .regular))
+                    .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .foregroundColor(isSelected ? .white : .secondary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .foregroundColor(isSelected ? .white : (hovering ? .primary : .secondary))
             .background(
                 Capsule()
-                    .fill(isSelected ? AnyShapeStyle(AppColors.primaryGradient) : AnyShapeStyle(Color.clear))
+                    .fill(isSelected
+                          ? AnyShapeStyle(AppColors.primaryGradient)
+                          : AnyShapeStyle(hovering ? Color.secondary.opacity(0.12) : Color.clear))
             )
         }
         .buttonStyle(.plain)
+        .onHover { hovering = $0 }
     }
 }
 
-// MARK: - AppTab 扩展（添加 iconFilled）
 extension AppTab {
     var iconFilled: String {
         switch self {
         case .chat: return "bubble.left.and.text.bubble.right.fill"
+        case .inbox: return "tray.fill"
         case .history: return "clock.fill"
         case .settings: return "gearshape.fill"
         }

@@ -5,6 +5,6 @@ struct ContentView: View {
 
     var body: some View {
         MainTabView()
-            .frame(width: 420, height: 560)
+            .frame(width: 760, height: 520)
     }
 }

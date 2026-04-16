@@ -228,13 +228,15 @@ OPC 伴侣是一个常驻 macOS 的 AI 工作节奏教练。它通过快捷键�
 
 **读取操作（无需确认）：**
 1. 用户说"看看我今天的日程" / "查一下待办"
-2. Claude CLI 通过 MCP 查询 Notion
-3. 结果直接显示在对话中
+2. MiniMax 返回 function call（`query_notion_database`）
+3. App 直接调用 Notion API 执行
+4. 结果回传给 MiniMax 生成自然语言摘要
+5. 显示在对话中
 
 **写入操作（需要确认）：**
 1. 用户说"帮我加一条待办：写周报"
-2. Claude CLI 生成操作意图
-3. 面板显示确认卡片：
+2. MiniMax 返回 function call（`create_notion_page`）
+3. App 拦截该 function call，**不立即执行**，而是在面板显示确认卡片：
    ```
    ┌─ 即将执行 Notion 操作 ──────────┐
    │ 操作：新增页面                    │
@@ -316,10 +318,24 @@ OPC 伴侣是一个常驻 macOS 的 AI 工作节奏教练。它通过快捷键�
 ```json
 {
   "hotkey": "option+space",
+  "quick_capture_hotkey": "option+`",
   "system_prompt_file": "~/.opc-companion/system-prompt.txt",
-  "notion_database_ids": {
-    "calendar": "数据库ID",
-    "todos": "数据库ID"
+  "ai": {
+    "provider": "minimax",
+    "endpoint": "https://api.minimax.io/v1/text/chatcompletion_v2",
+    "model": "M2-her",
+    "api_key_keychain": "com.shiye.opc-companion.minimax-key",
+    "max_tokens": 2048,
+    "temperature": 0.7
+  },
+  "notion": {
+    "api_version": "2022-06-28",
+    "token_keychain": "com.shiye.opc-companion.notion-token",
+    "database_ids": {
+      "calendar": "数据库ID",
+      "todos": "数据库ID",
+      "inbox": "数据库ID"
+    }
   },
   "voice": {
     "tts_voice": "com.apple.voice.compact.zh-CN.Tingting",
@@ -327,6 +343,8 @@ OPC 伴侣是一个常驻 macOS 的 AI 工作节奏教练。它通过快捷键�
   }
 }
 ```
+
+**安全要求：** API Key（MiniMax 和 Notion token）必须存储在 macOS Keychain，不能以明文写入 config.json。config.json 只存储 Keychain 中的条目名。
 
 ---
 
@@ -358,45 +376,97 @@ OPC 伴侣是一个常驻 macOS 的 AI 工作节奏教练。它通过快捷键�
 3. 在用户偏离计划时主动提醒
 4. 回复简洁直接，不要啰嗦
 
-你可以执行的操作：
-- 创建计时任务（用户说"开始XX任务，N分钟"）
-- 查询 Notion 数据库（日历、待办等）
-- 修改 Notion 数据（需要用户确认后执行）
-
 回复规则：
 - 使用中文
 - 简短有力，每次回复控制在 3 句话以内
-- 如果是计时/任务操作，回复后附上结构化指令（见下方格式）
-
-当需要创建计时任务时，在回复末尾附加：
-[ACTION:timer:start:{"task":"任务名","minutes":25}]
-
-当需要操作 Notion 时，在回复末尾附加：
-[ACTION:notion:操作类型:{"参数"}]
-注意：Notion 写入操作必须等待用户在 UI 中确认后才执行。
+- 需要执行具体操作时，调用相应的 function（见 tools 定义）
+- Notion 写入类操作由用户 UI 确认，你只需发起 function call
 ```
+
+**通过 Function Calling（Tools）发起结构化操作，不再用文本标记。**
+
 
 ---
 
-## 9. macOS 设计规范要求
+## 9. AI 后端与 Function Calling
+
+### 9.1 AI 后端：MiniMax
+
+- **Endpoint：** `https://api.minimax.io/v1/text/chatcompletion_v2`
+- **认证：** `Authorization: Bearer <API_KEY>` header
+- **模型：** `M2-her`（MiniMax 最新对话模型，支持 function calling）
+- **对话维护：** 本地保存 messages 数组，每次请求带完整历史（或截断至最近 N 轮）
+- **流式响应：** `stream: true`，UI 实时渲染，体验比等整句更流畅
+
+### 9.2 Function Calling / Tools 定义
+
+所有 AI 可以发起的结构化操作，必须声明为 tools：
+
+| Tool 名称 | 用途 | 需要确认 | 参数 |
+|----------|------|---------|------|
+| `start_timer` | 开始一个计时任务 | 否 | `task: string`, `minutes: int` |
+| `complete_timer` | 标记当前计时任务完成 | 否 | `note?: string` |
+| `extend_timer` | 延长当前计时 | 否 | `minutes: int` |
+| `query_notion_database` | 查询 Notion 数据库 | 否 | `database_key: string`, `filter?: object` |
+| `create_notion_page` | 新增 Notion 页面 | **是** | `database_key: string`, `properties: object` |
+| `update_notion_page` | 修改 Notion 页面 | **是** | `page_id: string`, `properties: object` |
+| `add_pinned_task` | 添加一条置顶任务 | 否 | `title: string` |
+| `review_inbox` | 打开随手记收件箱 | 否 | 无 |
+
+**执行流程：**
+1. MiniMax 返回 `tool_calls` 数组
+2. 对每个 tool call，Swift 侧判断是否需要确认
+3. 需要确认的 → UI 弹出确认卡片，用户确认后执行
+4. 不需要确认的 → 立即执行
+5. 执行结果作为 `role: "tool"` 的消息追加到历史，再次请求 MiniMax
+6. MiniMax 生成最终自然语言回复展示给用户
+
+### 9.3 Notion 直连 API
+
+- **Base URL：** `https://api.notion.com/v1`
+- **认证：** `Authorization: Bearer <NOTION_TOKEN>` + `Notion-Version: 2022-06-28`
+- **关键 endpoints：**
+  - `POST /databases/{id}/query` — 查询数据库
+  - `POST /pages` — 新建页面
+  - `PATCH /pages/{id}` — 更新页面属性
+  - `GET /pages/{id}` — 读取页面
+
+### 9.4 Notion Calendar 读取
+
+Notion Calendar 本质是带日期属性的数据库，通过 `/databases/{id}/query` + date filter 读取：
+
+```json
+{
+  "filter": {
+    "property": "日期",
+    "date": { "equals": "2026-04-15" }
+  }
+}
+```
+
+用户在设置页配置 calendar 对应的 database_id，读取时按日期 filter。
+
+---
+
+## 10. macOS 设计规范要求
 
 整个应用必须严格遵循 Apple Human Interface Guidelines (HIG) for macOS：
 
-### 9.1 视觉设计
+### 10.1 视觉设计
 - 使用 SF Symbols 作为所有图标
 - 使用系统语义色（.primary, .secondary, .accent 等），支持浅色/深色模式自动切换
 - 毛玻璃背景材质（NSVisualEffectView 或 SwiftUI .ultraThinMaterial）
 - 圆角使用系统标准值（大容器 16px，卡片 12px，按钮 8px）
 - 间距遵循 8pt 网格系统
 
-### 9.2 组件设计
+### 10.2 组件设计
 - 使用原生 SwiftUI 组件：Toggle, Picker, DatePicker, TextField, TextEditor
 - Tab 栏使用 TabView 或自定义但符合 macOS tab 样式
 - 列表使用 List 组件，支持原生选中和悬停效果
 - 按钮使用 .bordered 或 .borderedProminent 样式
 - 确认对话使用 .confirmationDialog 或自定义 Sheet
 
-### 9.3 动画设计
+### 10.3 动画设计
 - 面板弹出/收起：.spring(response: 0.3, dampingFraction: 0.8) 弹性动画
 - 消息出现：从底部滑入 + 淡入，duration 0.2s
 - 状态切换：颜色渐变 duration 0.3s
@@ -404,19 +474,19 @@ OPC 伴侣是一个常驻 macOS 的 AI 工作节奏教练。它通过快捷键�
 - Tab 切换：crossfade 过渡
 - 任务完成：删除线从左到右绘制 + 颜色淡出
 
-### 9.4 无障碍
+### 10.4 无障碍
 - 所有交互元素设置 accessibilityLabel
 - 支持 VoiceOver
 - 支持键盘导航（Tab 切换焦点）
 
 ---
 
-## 10. 验收标准
+## 11. 验收标准
 
 ### P0（必须实现）
 
 - [ ] Option+Space 全局快捷键唤起/关闭中央浮层面板
-- [ ] 面板中可输入文字，发送后收到 Claude 回复
+- [ ] 面板中可输入文字，发送后收到 MiniMax 回复（流式渲染）
 - [ ] 长按 Option+Space 进入语音输入，AI 语音+文字回复
 - [ ] 菜单栏常驻图标，颜色随状态变化
 - [ ] 当日任务置顶显示，支持计时倒计时

@@ -15,6 +15,13 @@ struct SettingsView: View {
     @State private var proxyEnabled = false
     @State private var proxyHost = "127.0.0.1"
     @State private var proxyPort = 7890
+    @State private var notionToken = ""
+    @State private var notionDatabases: [NotionDatabase] = []
+    @State private var notionLoadingDatabases = false
+    @State private var notionLoadError: String?
+    @State private var notionCalendarId = ""
+    @State private var notionTodosId = ""
+    @State private var notionInboxId = ""
 
     private var availableVoices: [AVSpeechSynthesisVoice] {
         TTSService.availableVoices()
@@ -23,6 +30,8 @@ struct SettingsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
+                setupChecklist
+
                 // 系统提示词
                 VStack(alignment: .leading, spacing: 8) {
                     Text("系统提示词")
@@ -105,19 +114,19 @@ struct SettingsView: View {
                         state.config.apiConfig.provider = newValue
                         // 切换时更新默认 URL
                         if newValue == "minimax" {
-                            state.config.apiConfig.baseURL = "https://api.minimax.chat/v1"
+                            state.config.apiConfig.baseURL = APIConfig.miniMaxInternationalBaseURL
                         } else if newValue == "siliconflow" {
                             state.config.apiConfig.baseURL = "https://api.siliconflow.cn/v1"
                         }
+                        customBaseURL = state.config.apiConfig.baseURL
                         state.saveConfig()
                         state.saveConfig()
                     }
 
-                    TextField("API Key (sk-...)", text: $apiKey)
+                    SecureField("API Key（存储在 macOS Keychain）", text: $apiKey)
                         .textFieldStyle(.roundedBorder)
                         .onChange(of: apiKey) { _, newValue in
-                            state.config.apiConfig.apiKey = newValue
-                            state.saveConfig()
+                            CredentialCache.shared.setMinimaxAPIKey(newValue)
                         }
 
                     if selectedProvider == "custom" {
@@ -138,9 +147,13 @@ struct SettingsView: View {
                     if connectionStatus != "" {
                         Text(connectionStatus)
                             .font(.caption)
-                            .foregroundColor(connectionStatus.contains("成功") ? .green : .red)
+                            .foregroundColor(connectionStatus.contains("成功") ? AppColors.statusOk : AppColors.statusError)
                     }
                 }
+
+                Divider()
+
+                notionSection
 
                 Divider()
 
@@ -183,7 +196,7 @@ struct SettingsView: View {
 
                     HStack(spacing: 16) {
                         StatusIndicator(name: "Notion", isConnected: checkNotionConnection())
-                        StatusIndicator(name: "Claude CLI", isConnected: checkClaudeConnection())
+                        StatusIndicator(name: "MiniMax", isConnected: checkClaudeConnection())
                     }
                 }
 
@@ -194,6 +207,25 @@ struct SettingsView: View {
         .onAppear {
             systemPromptText = state.systemPrompt
             selectedVoice = state.config.voice.ttsVoice
+            selectedProvider = state.config.apiConfig.provider
+            apiKey = CredentialCache.shared.getMinimaxAPIKey()
+            if state.config.apiConfig.provider == "minimax",
+               state.config.apiConfig.baseURL == APIConfig.legacyMiniMaxBaseURL {
+                state.config.apiConfig.baseURL = APIConfig.miniMaxInternationalBaseURL
+                state.saveConfig()
+            }
+            customBaseURL = state.config.apiConfig.normalizedBaseURL
+            proxyEnabled = state.config.proxyConfig.enabled
+            proxyHost = state.config.proxyConfig.host
+            proxyPort = state.config.proxyConfig.port
+            notionToken = CredentialCache.shared.getNotionToken()
+            notionCalendarId = state.config.notionDatabaseIds.calendar ?? ""
+            notionTodosId = state.config.notionDatabaseIds.todos ?? ""
+            notionInboxId = state.config.notionDatabaseIds.inbox ?? ""
+        }
+        .onDisappear {
+            debounceTimer?.invalidate()
+            debounceTimer = nil
         }
         .sheet(isPresented: $showingTaskSheet) {
             ScheduledTaskForm(
@@ -214,6 +246,144 @@ struct SettingsView: View {
         }
     }
 
+    @ViewBuilder
+    private var setupChecklist: some View {
+        let apiKeyOK = !apiKey.trimmingCharacters(in: .whitespaces).isEmpty
+        let notionTokenOK = !notionToken.trimmingCharacters(in: .whitespaces).isEmpty
+        let dbMapped = !(notionCalendarId.isEmpty && notionTodosId.isEmpty && notionInboxId.isEmpty)
+        let allDone = apiKeyOK && notionTokenOK && dbMapped
+
+        if !allDone {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    Image(systemName: "list.bullet.clipboard")
+                        .foregroundColor(.orange)
+                    Text("配置步骤")
+                        .font(.headline)
+                    Spacer()
+                }
+                checklistRow(done: apiKeyOK, label: "填写 MiniMax API Key", required: true)
+                checklistRow(done: notionTokenOK, label: "填写 Notion Token", required: false)
+                checklistRow(done: dbMapped, label: "绑定至少一个 Notion 数据库", required: false)
+            }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color.orange.opacity(0.08))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(Color.orange.opacity(0.3), lineWidth: 1)
+            )
+        }
+    }
+
+    private func checklistRow(done: Bool, label: String, required: Bool) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: done ? "checkmark.circle.fill" : "circle")
+                .foregroundColor(done ? AppColors.statusOk : .secondary)
+                .font(.system(size: 14))
+            Text(label)
+                .font(.system(size: 12))
+                .strikethrough(done)
+                .foregroundColor(done ? .secondary : .primary)
+            if required && !done {
+                Text("必需")
+                    .font(.system(size: 10, weight: .medium))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 1)
+                    .background(Color.orange.opacity(0.2))
+                    .foregroundColor(.orange)
+                    .cornerRadius(4)
+            }
+            Spacer()
+        }
+    }
+
+    @ViewBuilder
+    private var notionSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Notion").font(.headline)
+
+            SecureField("Notion Token（存储在 macOS Keychain）", text: $notionToken)
+                .textFieldStyle(.roundedBorder)
+                .onChange(of: notionToken) { _, newValue in
+                    CredentialCache.shared.setNotionToken(newValue)
+                }
+
+            HStack {
+                Button {
+                    loadNotionDatabases()
+                } label: {
+                    if notionLoadingDatabases {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Text("刷新数据库列表")
+                    }
+                }
+                .buttonStyle(.bordered)
+                .disabled(notionToken.isEmpty || notionLoadingDatabases)
+
+                if let err = notionLoadError {
+                    Text(err).font(.caption).foregroundColor(.red)
+                } else if !notionDatabases.isEmpty {
+                    Text("共 \(notionDatabases.count) 个").font(.caption).foregroundColor(.secondary)
+                }
+            }
+
+            if !notionDatabases.isEmpty {
+                notionMappingRow(label: "日历", selection: $notionCalendarId) { id in
+                    state.config.notionDatabaseIds.calendar = id
+                    state.saveConfig()
+                }
+                notionMappingRow(label: "待办", selection: $notionTodosId) { id in
+                    state.config.notionDatabaseIds.todos = id
+                    state.saveConfig()
+                }
+                notionMappingRow(label: "收件箱", selection: $notionInboxId) { id in
+                    state.config.notionDatabaseIds.inbox = id
+                    state.saveConfig()
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func notionMappingRow(label: String, selection: Binding<String>, onChange: @escaping (String?) -> Void) -> some View {
+        HStack {
+            Text(label).frame(width: 48, alignment: .leading)
+            Picker("", selection: selection) {
+                Text("未选择").tag("")
+                ForEach(notionDatabases) { db in
+                    Text(db.title.isEmpty ? db.id.prefix(8).description : db.title).tag(db.id)
+                }
+            }
+            .labelsHidden()
+            .onChange(of: selection.wrappedValue) { _, newValue in
+                onChange(newValue.isEmpty ? nil : newValue)
+            }
+        }
+    }
+
+    private func loadNotionDatabases() {
+        notionLoadError = nil
+        notionLoadingDatabases = true
+        Task {
+            do {
+                let dbs = try await NotionService.shared.searchDatabases()
+                await MainActor.run {
+                    self.notionDatabases = dbs
+                    self.notionLoadingDatabases = false
+                }
+            } catch {
+                await MainActor.run {
+                    self.notionLoadError = error.localizedDescription
+                    self.notionLoadingDatabases = false
+                }
+            }
+        }
+    }
+
     private func debounceSave(_ text: String) {
         debounceTimer?.invalidate()
         debounceTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: false) { _ in
@@ -225,17 +395,11 @@ struct SettingsView: View {
     }
 
     private func checkNotionConnection() -> Bool {
-        // return NotionSyncManager.shared.isConnected
-        let mcpPath = Bundle.main.path(forResource: "notion-mcp", ofType: "json")
-        return mcpPath != nil
-    }
-
-    private func syncFromNotion() async {
-        await NotionSyncManager.shared.syncFromNotion()
+        !CredentialCache.shared.getNotionToken().isEmpty
     }
 
     private func checkClaudeConnection() -> Bool {
-        FileManager.default.fileExists(atPath: "/Users/shiye/.local/bin/claude")
+        !CredentialCache.shared.getMinimaxAPIKey().isEmpty
     }
 
     private func testAPIConnection() {
@@ -248,12 +412,14 @@ struct SettingsView: View {
 
         Task {
             do {
-                let testPrompt = "Say 'ok' if you receive this."
-                let response = try await ChatEngine.shared.sendMessage(testPrompt, systemPrompt: "")
-                if response.lowercased().contains("ok") || !response.isEmpty {
-                    connectionStatus = "连接成功！"
+                if selectedProvider == "minimax" {
+                    let config = APIConfig(provider: selectedProvider, apiKey: apiKey, baseURL: customBaseURL)
+                    _ = try await ChatEngine.shared.testMiniMaxConnection(config: config)
+                    connectionStatus = "MiniMax 连接成功！"
                 } else {
-                    connectionStatus = "响应异常：\(response.prefix(50))"
+                    let testPrompt = "Say 'ok' if you receive this."
+                    let response = try await ChatEngine.shared.sendMessage(testPrompt, systemPrompt: "", useConversationHistory: false)
+                    connectionStatus = response.isEmpty ? "响应异常：空响应" : "连接成功！"
                 }
             } catch {
                 connectionStatus = "连接失败: \(error.localizedDescription)"
@@ -447,7 +613,7 @@ struct StatusIndicator: View {
     var body: some View {
         HStack(spacing: 6) {
             Circle()
-                .fill(isConnected ? Color.green : Color.red)
+                .fill(isConnected ? AppColors.statusOk : AppColors.statusError)
                 .frame(width: 8, height: 8)
             Text(name)
                 .font(.subheadline)

@@ -21,9 +21,6 @@ cp "$BUILD_DIR/$APP_NAME" "$APP_BUNDLE/Contents/MacOS/"
 # 复制 Info.plist
 cp "Resources/Info.plist" "$APP_BUNDLE/Contents/"
 
-# 复制资源文件
-cp "Resources/notion-mcp.json" "$APP_BUNDLE/Contents/Resources/"
-
 # Ad-hoc 签名
 codesign -s - --force --deep "$APP_BUNDLE" 2>/dev/null || true
 

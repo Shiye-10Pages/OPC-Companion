@@ -11,16 +11,19 @@ let package = Package(
         .executableTarget(
             name: "OPCCompanion",
             path: "Sources/OPCCompanion",
-            resources: [
-                .copy("../../Resources/notion-mcp.json")
-            ],
             linkerSettings: [
                 .linkedFramework("AppKit"),
                 .linkedFramework("Speech"),
                 .linkedFramework("AVFoundation"),
                 .linkedFramework("Carbon"),
                 .linkedFramework("UserNotifications"),
+                .linkedFramework("Security"),
             ]
+        ),
+        .testTarget(
+            name: "OPCCompanionTests",
+            dependencies: ["OPCCompanion"],
+            path: "Tests/OPCCompanionTests"
         )
     ]
 )

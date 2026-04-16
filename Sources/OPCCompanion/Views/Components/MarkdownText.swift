@@ -1,96 +1,147 @@
 import SwiftUI
 
+/// 把 markdown 文本按段落分块渲染，支持加粗/斜体/链接/代码块/列表/标题。
 struct MarkdownText: View {
     let text: String
 
     var body: some View {
-        // 简单解析 Markdown 并渲染 - 只支持基本格式
-        FlowStack {
-            ForEach(Array(parseMarkdown().enumerated()), id: \.offset) { _, element in
-                element
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
+                renderBlock(block)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func parseMarkdown() -> [Text] {
-        var result: [Text] = []
-        let lines = text.components(separatedBy: .newlines)
+    private enum Block {
+        case heading(level: Int, text: String)
+        case codeBlock(String)
+        case bullet([String])
+        case paragraph(String)
+    }
 
-        for line in lines {
-            if line.isEmpty {
-                result.append(Text(" "))
+    private var blocks: [Block] {
+        var result: [Block] = []
+        let lines = text.components(separatedBy: "\n")
+        var i = 0
+        var buffer: [String] = []
+        var bulletBuffer: [String] = []
+
+        func flushBuffer() {
+            if !buffer.isEmpty {
+                let para = buffer.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+                if !para.isEmpty { result.append(.paragraph(para)) }
+                buffer.removeAll()
+            }
+        }
+        func flushBullets() {
+            if !bulletBuffer.isEmpty {
+                result.append(.bullet(bulletBuffer))
+                bulletBuffer.removeAll()
+            }
+        }
+
+        while i < lines.count {
+            let line = lines[i]
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+
+            // 代码块
+            if trimmed.hasPrefix("```") {
+                flushBuffer(); flushBullets()
+                var code: [String] = []
+                i += 1
+                while i < lines.count, !lines[i].trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+                    code.append(lines[i])
+                    i += 1
+                }
+                result.append(.codeBlock(code.joined(separator: "\n")))
+                i += 1
                 continue
             }
 
-            // 解析加粗 **text**
-            var remaining = line
-            var isFirst = true
-
-            while let boldRange = remaining.range(of: #"\*\*(.+?)\*\*"#, options: .regularExpression) {
-                let beforeBold = String(remaining[..<boldRange.lowerBound])
-                if !beforeBold.isEmpty {
-                    isFirst = false
-                }
-
-                let boldContent = String(remaining[boldRange])
-                    .replacingOccurrences(of: "**", with: "")
-
-                var styled = Text(boldContent)
-                // 不容易直接添加 bold，用普通文本
-                result.append(Text(boldContent))
-
-                remaining = String(remaining[boldRange.upperBound...])
-                isFirst = false
+            // 标题 # / ## / ###
+            if let level = headingLevel(line: trimmed) {
+                flushBuffer(); flushBullets()
+                let dropped = trimmed.drop { $0 == "#" }.trimmingCharacters(in: .whitespaces)
+                result.append(.heading(level: level, text: dropped))
+                i += 1
+                continue
             }
 
-            if !remaining.isEmpty {
-                if result.isEmpty {
-                    result.append(Text(remaining))
-                } else {
-                    result.append(Text(remaining))
-                }
+            // 列表项
+            if trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ") {
+                flushBuffer()
+                bulletBuffer.append(String(trimmed.dropFirst(2)))
+                i += 1
+                continue
             }
+
+            // 空行 → 段落分隔
+            if trimmed.isEmpty {
+                flushBullets()
+                flushBuffer()
+                i += 1
+                continue
+            }
+
+            // 普通段落
+            flushBullets()
+            buffer.append(line)
+            i += 1
         }
-
-        return result.isEmpty ? [Text(text)] : result
-    }
-}
-
-// 简单的 Markdown 渲染辅助组件
-struct FlowStack<Content: View>: View {
-    let content: () -> Content
-
-    init(@ViewBuilder content: @escaping () -> Content) {
-        self.content = content
-    }
-
-    var body: some View {
-        content()
-    }
-}
-
-// 扩展 Text 支持 Markdown 样式
-extension Text {
-    func styledMarkdown(_ content: String) -> Text {
-        var result = Text("")
-        let lines = content.components(separatedBy: .newlines)
-
-        for (index, line) in lines.enumerated() {
-            // 检测列表项
-            if line.hasPrefix("- ") {
-                result = result + Text("  • " + String(line.dropFirst(2)))
-            } else if line.hasPrefix("```") {
-                // 代码块 - 简化处理
-                result = result + Text(line)
-            } else {
-                result = result + Text(line)
-            }
-
-            if index < lines.count - 1 {
-                result = result + Text("\n")
-            }
-        }
-
+        flushBullets()
+        flushBuffer()
         return result
+    }
+
+    private func headingLevel(line: String) -> Int? {
+        guard line.hasPrefix("#") else { return nil }
+        let hashes = line.prefix { $0 == "#" }.count
+        guard hashes >= 1, hashes <= 6, line.dropFirst(hashes).first == " " else { return nil }
+        return hashes
+    }
+
+    @ViewBuilder
+    private func renderBlock(_ block: Block) -> some View {
+        switch block {
+        case .heading(let level, let text):
+            inlineMarkdown(text)
+                .font(.system(size: max(13, 20 - CGFloat(level) * 2), weight: .semibold))
+        case .paragraph(let text):
+            inlineMarkdown(text)
+                .fixedSize(horizontal: false, vertical: true)
+        case .bullet(let items):
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                    HStack(alignment: .top, spacing: 6) {
+                        Text("•").foregroundColor(.secondary)
+                        inlineMarkdown(item)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+        case .codeBlock(let code):
+            Text(code)
+                .font(.system(size: 12, design: .monospaced))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(8)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color(nsColor: .textBackgroundColor).opacity(0.5))
+                )
+                .textSelection(.enabled)
+        }
+    }
+
+    private func inlineMarkdown(_ text: String) -> Text {
+        if let attributed = try? AttributedString(
+            markdown: text,
+            options: AttributedString.MarkdownParsingOptions(
+                interpretedSyntax: .inlineOnlyPreservingWhitespace
+            )
+        ) {
+            return Text(attributed)
+        }
+        return Text(text)
     }
 }

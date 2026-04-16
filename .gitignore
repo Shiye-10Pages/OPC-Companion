@@ -1,0 +1,27 @@
+# Swift Package Manager
+.build/
+Package.resolved
+
+# App bundle
+OPCCompanion.app/
+
+# Local secrets
+secrets.json
+
+# macOS
+.DS_Store
+__pycache__/
+
+# Test artifacts
+Minimal/
+TestApp/
+test_un
+test_un.swift
+coach.py
+test_coach.py
+
+# User data (never commit)
+~/.opc-companion/
+
+# Logs
+*.log

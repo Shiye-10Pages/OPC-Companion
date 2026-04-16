@@ -1,6 +1,6 @@
 import Foundation
 
-public struct AppConfig: Codable {
+public struct AppConfig: Codable, Sendable {
     public var hotkey: String
     public var systemPromptFile: String
     public var notionDatabaseIds: NotionDatabaseIds
@@ -25,7 +25,11 @@ public struct AppConfig: Codable {
     }
 }
 
-public struct APIConfig: Codable {
+public struct APIConfig: Codable, Sendable {
+    public static let miniMaxInternationalBaseURL = "https://api.minimax.io/v1"
+    public static let legacyMiniMaxBaseURL = "https://api.minimax.chat/v1"
+    public static let miniMaxDefaultModel = "MiniMax-M2.7"
+
     public var provider: String
     public var apiKey: String
     public var baseURL: String
@@ -33,15 +37,31 @@ public struct APIConfig: Codable {
     public init(
         provider: String = "minimax",
         apiKey: String = "",
-        baseURL: String = "https://api.minimax.chat/v1"  // MiniMax 海外版
+        baseURL: String = APIConfig.miniMaxInternationalBaseURL
     ) {
         self.provider = provider
         self.apiKey = apiKey
         self.baseURL = baseURL
     }
+
+    public var normalizedBaseURL: String {
+        if provider == "minimax" && baseURL == Self.legacyMiniMaxBaseURL {
+            return Self.miniMaxInternationalBaseURL
+        }
+        return baseURL
+    }
+
+    public var defaultModel: String {
+        switch provider {
+        case "minimax":
+            return Self.miniMaxDefaultModel
+        default:
+            return Self.miniMaxDefaultModel
+        }
+    }
 }
 
-public struct ProxyConfig: Codable {
+public struct ProxyConfig: Codable, Sendable {
     public var enabled: Bool
     public var host: String
     public var port: Int
@@ -57,17 +77,28 @@ public struct ProxyConfig: Codable {
     }
 }
 
-public struct NotionDatabaseIds: Codable {
+public struct NotionDatabaseIds: Codable, Sendable {
     public var calendar: String?
     public var todos: String?
+    public var inbox: String?
 
-    public init(calendar: String? = nil, todos: String? = nil) {
+    public init(calendar: String? = nil, todos: String? = nil, inbox: String? = nil) {
         self.calendar = calendar
         self.todos = todos
+        self.inbox = inbox
+    }
+
+    public func id(for key: String) -> String? {
+        switch key {
+        case "calendar": return calendar
+        case "todos": return todos
+        case "inbox": return inbox
+        default: return nil
+        }
     }
 }
 
-public struct VoiceConfig: Codable {
+public struct VoiceConfig: Codable, Sendable {
     public var ttsVoice: String
     public var ttsRate: Double
 

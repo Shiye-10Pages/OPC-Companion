@@ -13,10 +13,21 @@ struct AppColors {
 
     static let userBubble = Color(hex: "#007AFF").opacity(0.15)
     static let assistantBubble = Color(nsColor: .controlBackgroundColor)
-    static let systemBubble = Color(hex: "#FFF3E0")
+    static let systemBubble = Color.orange.opacity(0.15)
 
     static let inputBackground = Color(nsColor: .controlBackgroundColor).opacity(0.6)
-    static let cardBackground = Color.white.opacity(0.5)
+    static let cardBackground = Color(nsColor: .controlBackgroundColor).opacity(0.6)
+    static let cardBorder = Color(nsColor: .separatorColor).opacity(0.6)
+
+    // 任务状态色（使用 NSColor 系统色，自动适配浅/深色）
+    static let taskPending = Color.secondary
+    static let taskInProgress = Color(nsColor: .systemGreen)
+    static let taskDone = Color(nsColor: .systemBlue)
+    static let taskCancelled = Color(nsColor: .systemRed)
+
+    // 连接状态语义色
+    static let statusOk = Color(nsColor: .systemGreen)
+    static let statusError = Color(nsColor: .systemRed)
 }
 
 // MARK: - 圆角系统
