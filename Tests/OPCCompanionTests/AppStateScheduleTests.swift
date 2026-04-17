@@ -22,12 +22,14 @@ final class AppStateScheduleTests: XCTestCase {
         state.checkScheduledTasks(now: Date())
         XCTAssertTrue(state.hasUnreadReminders)
         XCTAssertEqual(state.triggeredTasksToday.count, 1)
-        let systemMessages = state.messages.filter { $0.role == .system && $0.content.contains("复盘") }
-        XCTAssertEqual(systemMessages.count, 1)
+        // 新设计：定时触发不进消息流，改为 banner + daily note
+        XCTAssertNotNil(state.banner, "首次触发应弹出 banner")
+        XCTAssertTrue(state.banner?.text.contains("复盘") ?? false)
 
-        let countBefore = state.messages.count
+        let firstBannerID = state.banner?.id
         state.checkScheduledTasks(now: Date())
-        XCTAssertEqual(state.messages.count, countBefore, "同一天内不应重复触发")
+        XCTAssertEqual(state.banner?.id, firstBannerID, "同一天内不应重复触发新 banner")
+        XCTAssertEqual(state.triggeredTasksToday.count, 1)
     }
 
     func testDisabledTaskIsSkipped() {

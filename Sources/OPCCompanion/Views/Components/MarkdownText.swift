@@ -10,7 +10,7 @@ struct MarkdownText: View {
                 renderBlock(block)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .textSelection(.enabled)
     }
 
     private enum Block {

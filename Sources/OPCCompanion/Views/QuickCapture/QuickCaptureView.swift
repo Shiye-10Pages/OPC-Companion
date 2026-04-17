@@ -34,7 +34,7 @@ struct QuickCaptureView: View {
                     Circle()
                         .fill(isEmpty
                               ? AnyShapeStyle(Color.secondary.opacity(0.15))
-                              : AnyShapeStyle(AppColors.primaryGradient))
+                              : AnyShapeStyle(Color.accentColor))
                     Image(systemName: "return.left")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(isEmpty ? .secondary : .white)

@@ -3,19 +3,24 @@ import SwiftUI
 struct InboxView: View {
     @EnvironmentObject var state: AppState
     @State private var selectedNoteIds: Set<UUID> = []
-
-    private var visibleNotes: [Note] {
-        state.notes.filter { $0.status != .deleted }
-    }
+    @State private var showProcessed = false
 
     private var pendingNotes: [Note] {
-        state.notes.filter { $0.status == .pending }
+        state.notes.filter { $0.status == .pending || $0.status == .expired }
+    }
+
+    private var processedNotes: [Note] {
+        state.notes.filter { $0.status == .done }
+    }
+
+    private var activeNotes: [Note] {
+        showProcessed ? processedNotes : pendingNotes
     }
 
     private var grouped: [(date: String, notes: [Note])] {
         let df = DateFormatter()
         df.dateFormat = "yyyy-MM-dd"
-        let groups = Dictionary(grouping: visibleNotes) { df.string(from: $0.capturedAt) }
+        let groups = Dictionary(grouping: activeNotes) { df.string(from: $0.capturedAt) }
         return groups
             .map { (date: $0.key, notes: $0.value.sorted { $0.capturedAt > $1.capturedAt }) }
             .sorted { $0.date > $1.date }
@@ -23,22 +28,36 @@ struct InboxView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Image(systemName: "tray")
-                Text("收件箱").font(.headline)
-                Spacer()
-                if state.unreadNoteCount > 0 {
-                    Text("\(state.unreadNoteCount) 条未处理")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+            // 顶部 mini tab：待处理 / 已处理
+            HStack(spacing: 0) {
+                inboxTab(label: "待处理", count: pendingNotes.count, active: !showProcessed) {
+                    showProcessed = false
+                    selectedNoteIds.removeAll()
                 }
+                inboxTab(label: "已处理", count: processedNotes.count, active: showProcessed) {
+                    showProcessed = true
+                    selectedNoteIds.removeAll()
+                }
+                Spacer()
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 16)
-            .padding(.bottom, 8)
+            .padding(.horizontal, 12)
+            .padding(.top, 8)
+            .padding(.bottom, 4)
 
-            if visibleNotes.isEmpty {
-                emptyState
+            if activeNotes.isEmpty {
+                if showProcessed {
+                    VStack(spacing: 8) {
+                        Image(systemName: "checkmark.circle")
+                            .font(.system(size: 28))
+                            .foregroundColor(.secondary)
+                        Text("没有已处理的记录")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    emptyState
+                }
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
@@ -75,39 +94,107 @@ struct InboxView: View {
         let pendingCount = pendingNotes.count
         let selectedCount = selectedNoteIds.count
         if pendingCount > 0 || selectedCount > 0 {
-            HStack {
-                if selectedCount > 0 {
-                    Text("已选 \(selectedCount) 条").font(.caption).foregroundColor(.secondary)
-                    Button("批量推 Notion") { batchPushNotion() }
-                        .buttonStyle(.bordered)
-                    Button("清除选择") {
-                        selectedNoteIds.removeAll()
-                    }
-                    .buttonStyle(.borderless)
-                    Spacer()
-                } else {
-                    Spacer()
+            VStack(spacing: 0) {
+                Divider().opacity(0.5)
+                HStack(spacing: 8) {
+                    // 全选 / 取消全选
                     Button {
-                        organize()
-                    } label: {
-                        if state.isOrganizing {
-                            ProgressView().controlSize(.small)
+                        if selectedNoteIds.count == pendingNotes.count {
+                            selectedNoteIds.removeAll()
                         } else {
-                            Label("一键整理", systemImage: "wand.and.stars")
+                            selectedNoteIds = Set(pendingNotes.map { $0.id })
                         }
+                    } label: {
+                        Text(selectedNoteIds.count == pendingNotes.count && !pendingNotes.isEmpty ? "取消全选" : "全选")
+                            .font(.caption)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(state.isOrganizing || pendingCount == 0)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+
+                    if selectedCount > 0 {
+                        Text("已选 \(selectedCount)").font(.caption).foregroundColor(.secondary)
+
+                        Spacer()
+
+                        HoverIconButton(systemImage: "checkmark.circle", help: "批量完成") {
+                            batchMarkDone()
+                        }
+                        HoverIconButton(systemImage: "trash", help: "批量删除") {
+                            batchDelete()
+                        }
+                        HoverIconButton(label: "Notion", help: "批量推送") {
+                            batchPushNotion()
+                        }
+                    } else {
+                        Spacer()
+                        Button {
+                            organize()
+                        } label: {
+                            if state.isOrganizing {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Label("一键整理", systemImage: "wand.and.stars")
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .disabled(state.isOrganizing || pendingCount == 0)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(.ultraThinMaterial)
+            }
+        }
+    }
+
+    private func batchMarkDone() {
+        for id in selectedNoteIds {
+            if let note = state.notes.first(where: { $0.id == id && $0.status == .pending }) {
+                state.markNoteDone(note)
+            }
+        }
+        let count = selectedNoteIds.count
+        selectedNoteIds.removeAll()
+        state.showBanner("已完成 \(count) 条", kind: .success)
+    }
+
+    private func batchDelete() {
+        for id in selectedNoteIds {
+            if let note = state.notes.first(where: { $0.id == id }) {
+                state.deleteNote(note)
+            }
+        }
+        let count = selectedNoteIds.count
+        selectedNoteIds.removeAll()
+        state.showBanner("已删除 \(count) 条", kind: .info)
+    }
+
+    @ViewBuilder
+    private func inboxTab(label: String, count: Int, active: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Text(label)
+                    .font(.system(size: 12, weight: active ? .semibold : .regular))
+                if count > 0 {
+                    Text("\(count)")
+                        .font(.system(size: 11, weight: .medium))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(
+                            Capsule().fill(active ? Color.accentColor.opacity(0.2) : Color.secondary.opacity(0.15))
+                        )
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
+            .foregroundStyle(active ? Color.accentColor : .secondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
             .background(
-                Rectangle()
-                    .fill(.regularMaterial)
-                    .overlay(Divider(), alignment: .top)
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(active ? Color.accentColor.opacity(0.1) : Color.clear)
             )
         }
+        .buttonStyle(.plain)
     }
 
     private func toggleSelection(_ note: Note) {
@@ -137,9 +224,9 @@ struct InboxView: View {
                 // 仅保留失败的，方便用户一键重试
                 selectedNoteIds = failed
                 if failed.isEmpty {
-                    state.appendMessage(Message(role: .system, content: "✓ 批量推送完成（共 \(snapshot.count) 条）"))
+                    state.showBanner("批量推送完成（共 \(snapshot.count) 条）", kind: .success)
                 } else {
-                    state.appendMessage(Message(role: .system, content: "⚠️ \(failed.count)/\(snapshot.count) 条推送失败，已保留选中可重试"))
+                    state.showBanner("\(failed.count)/\(snapshot.count) 条推送失败，已保留选中可重试", kind: .warning, duration: 5.0)
                 }
             }
         }
@@ -192,15 +279,20 @@ struct NoteCard: View {
             VStack(alignment: .leading, spacing: 10) {
                 Text(note.content)
                     .font(.system(size: 13))
-                    .strikethrough(note.status == .done)
-                    .foregroundColor(note.status == .done ? .secondary : .primary)
+                    .strikethrough(note.status == .done || note.status == .expired)
+                    .foregroundColor(note.status == .pending ? .primary : .secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                HStack {
+                HStack(spacing: 6) {
                     Text(formatTime(note.capturedAt))
                         .font(.caption)
                         .foregroundColor(.secondary)
+                    if note.status == .expired {
+                        Text("· 已过期")
+                            .font(.caption)
+                            .foregroundColor(Color(nsColor: .systemOrange))
+                    }
                     Spacer()
                     actionButtons
                 }
@@ -219,17 +311,20 @@ struct NoteCard: View {
 
     @ViewBuilder
     private var actionButtons: some View {
-        if note.status == .pending {
-            HStack(spacing: 10) {
-                Button("完成") { state.markNoteDone(note) }
-                Button("转任务") { state.convertNoteToTask(note) }
-                Button("推 Notion") { pushNotion() }
-                Button("删除") { state.deleteNote(note) }
-                    .foregroundColor(.red)
+        switch note.status {
+        case .pending:
+            HStack(spacing: 2) {
+                HoverIconButton(systemImage: "checkmark.circle", help: "标记完成") { state.markNoteDone(note) }
+                HoverIconButton(systemImage: "arrow.right.circle", help: "转任务") { state.convertNoteToTask(note) }
+                HoverIconButton(label: "Notion", help: "推送到 Notion") { pushNotion() }
+                HoverIconButton(systemImage: "trash", help: "删除") { state.deleteNote(note) }
             }
-            .font(.caption)
-            .buttonStyle(.borderless)
-        } else {
+        case .expired:
+            HStack(spacing: 2) {
+                HoverIconButton(systemImage: "arrow.right.circle", help: "转任务") { state.convertNoteToTask(note) }
+                HoverIconButton(systemImage: "trash", help: "删除") { state.deleteNote(note) }
+            }
+        default:
             Text("已处理")
                 .font(.caption)
                 .foregroundColor(.secondary)

@@ -5,41 +5,102 @@ struct ChatView: View {
     @ObservedObject private var notionConfirm = NotionConfirmManager.shared
     @State private var inputText = ""
     @FocusState private var isInputFocused: Bool
+    @State private var isNearBottom = true  // 底部 sentinel 是否在视窗里
+
+    private static let bottomAnchorId = "__chat_bottom_anchor__"
+
+    /// 渲染用消息列表：过滤掉 hidden + 空 assistant 占位（首 token 到达前不显示空气泡，由 TypingIndicator 承接等待态）
+    private var renderedMessages: [Message] {
+        state.messages.filter { msg in
+            guard !msg.hidden else { return false }
+            if msg.role == .assistant && msg.content.isEmpty { return false }
+            return true
+        }
+    }
+
+    /// 把 `/命令` 映射到对应 popover Tab（砍-C：设置不再占 StatusBar 图标，靠命令召唤）
+    /// 斜杠命令识别（仅保留 3 个：随手记由默认 fallback 处理，今日必做 + 学习走这里）
+    static func handleCommand(_ keyword: String, state: AppState) -> Bool {
+        switch keyword {
+        case "今日必做", "ritual":
+            state.showMorningRitual = true; return true
+        case "学习", "learn", "dreaming":
+            state.triggerDreamingIfNeeded(); return true
+        default:
+            return false
+        }
+    }
 
     var body: some View {
         ZStack(alignment: .bottom) {
             VStack(spacing: 0) {
-                // 当日任务区
-                TaskSection()
-
+                // 任务区已迁移到顶部 status bar 的「任务」popover；消息流保持纯净
                 // 对话消息区
                 ScrollViewReader { proxy in
-                    ScrollView {
-                        if state.messages.filter({ !$0.hidden }).isEmpty && !state.isLoading {
-                            chatEmptyState
-                        } else {
-                            LazyVStack(spacing: 14) {
-                                ForEach(state.messages.filter { !$0.hidden }) { message in
-                                    MessageBubble(message: message)
-                                        .id(message.id)
-                                }
+                    ZStack(alignment: .bottom) {
+                        ScrollView {
+                            if renderedMessages.isEmpty && !state.isLoading {
+                                chatEmptyState
+                            } else {
+                                LazyVStack(spacing: 14) {
+                                    ForEach(renderedMessages) { message in
+                                        MessageBubble(message: message)
+                                            .id(message.id)
+                                    }
 
-                                if state.isLoading {
-                                    TypingIndicator()
+                                    if state.isLoading {
+                                        TypingIndicator()
+                                    }
+
+                                    // 底部 sentinel：出现在视窗时 isNearBottom = true
+                                    Color.clear
+                                        .frame(height: 1)
+                                        .id(Self.bottomAnchorId)
+                                        .onAppear { isNearBottom = true }
+                                        .onDisappear { isNearBottom = false }
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 8)
+                            }
+                        }
+                        .scrollIndicators(.automatic)
+                        .onChange(of: state.messages.count) { _, _ in
+                            // 只在用户本来就在底部时自动跟随；不在底部则不打扰正在阅读的人
+                            if isNearBottom {
+                                withAnimation {
+                                    proxy.scrollTo(Self.bottomAnchorId, anchor: .bottom)
                                 }
                             }
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
                         }
-                    }
-                    .scrollIndicators(.hidden)
-                    .onChange(of: state.messages.count) { _, _ in
-                        if let lastMessage = state.messages.last {
-                            withAnimation {
-                                proxy.scrollTo(lastMessage.id, anchor: .bottom)
+
+                        // 滚动到最新浮层按钮：用户不在底部时显示
+                        if !isNearBottom && !renderedMessages.isEmpty {
+                            Button {
+                                withAnimation(AppAnimations.quick) {
+                                    proxy.scrollTo(Self.bottomAnchorId, anchor: .bottom)
+                                }
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "arrow.down")
+                                        .font(.system(size: 11, weight: .semibold))
+                                    Text("最新")
+                                        .font(.system(size: 11, weight: .medium))
+                                }
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 7)
+                                .background(
+                                    Capsule()
+                                        .fill(Color.accentColor)
+                                )
+                                .shadow(color: .black.opacity(0.2), radius: 6, y: 2)
                             }
+                            .buttonStyle(.plain)
+                            .padding(.bottom, 10)
+                            .transition(.opacity.combined(with: .move(edge: .bottom)))
                         }
                     }
+                    .animation(AppAnimations.quick, value: isNearBottom)
                 }
 
                 Divider()
@@ -65,7 +126,7 @@ struct ChatView: View {
                     .transition(.opacity)
                 }
             }
-            .animation(.easeInOut(duration: 0.2), value: notionConfirm.showConfirmation)
+            .animation(AppAnimations.quick, value: notionConfirm.showConfirmation)
             .onAppear {
                 isInputFocused = true
             }
@@ -141,14 +202,23 @@ struct ChatView: View {
             VoiceService.shared.stopRecording()
         }
 
-        // `/` 前缀 → 随手记，不走 AI 对话流
+        // `/` 前缀：先尝试命令（打开 popover），否则当随手记
         if rawInput.hasPrefix("/") {
-            let content = String(rawInput.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
+            let body = String(rawInput.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
             inputText = ""
             isInputFocused = true
-            guard !content.isEmpty else { return }
-            state.captureNote(content: content, source: .slashInPanel, inputMode: inputMode)
-            state.appendMessage(Message(role: .system, content: "📥 已存随手记：\(content)"))
+            guard !body.isEmpty else { return }
+
+            // 命令识别：单关键字（中英文均可）
+            let lower = body.lowercased()
+            if Self.handleCommand(lower, state: state) {
+                return
+            }
+
+            // 非命令 → 落到随手记
+            state.captureNote(content: body, source: .slashInPanel, inputMode: inputMode)
+            state.showBanner("已存随手记", kind: .success)
+            MemoryService.shared.appendToToday(.notes, entry: body)
             return
         }
 
@@ -203,11 +273,11 @@ struct ChatView: View {
                         // 已收到部分内容 → 保留 + 追加断开标记
                         state.messages[idx].content = partial + "\n\n— [连接中断: \(error.localizedDescription)]"
                     } else {
-                        // 完全没收到 → 替换为错误提示
-                        state.messages[idx].role = .system
+                        // 完全没收到 → assistant 气泡替换为友好错误提示（保持 role 不变，消息流只有 user/assistant）
                         state.messages[idx].content = "抱歉，出了点问题：\(error.localizedDescription)"
                     }
                 }
+                state.showBanner("消息发送失败：\(error.localizedDescription)", kind: .error, duration: 5.0)
             }
 
             state.isLoading = false
@@ -218,7 +288,6 @@ struct ChatView: View {
 struct TaskSection: View {
     @EnvironmentObject var state: AppState
     @State private var isExpanded = true
-    @State private var showAddTask = false
 
     var body: some View {
         Group {
@@ -230,11 +299,6 @@ struct TaskSection: View {
         }
         .padding(.horizontal, 12)
         .padding(.top, 8)
-        .sheet(isPresented: $showAddTask) {
-            AddTaskSheet { title, minutes in
-                addTask(title: title, minutes: minutes)
-            }
-        }
     }
 
     private var compactEmptyBar: some View {
@@ -244,7 +308,7 @@ struct TaskSection: View {
             Text("今日任务 · 暂无")
                 .font(.caption)
             Spacer()
-            Button { showAddTask = true } label: {
+            Button { state.showAddTaskOverlay = true } label: {
                 Image(systemName: "plus.circle")
                     .font(.system(size: 13))
             }
@@ -278,7 +342,7 @@ struct TaskSection: View {
                     .background(AppColors.primary.opacity(0.18))
                     .cornerRadius(10)
 
-                Button { showAddTask = true } label: {
+                Button { state.showAddTaskOverlay = true } label: {
                     Image(systemName: "plus.circle")
                         .font(.system(size: 14))
                 }
@@ -289,7 +353,7 @@ struct TaskSection: View {
                     withAnimation(AppAnimations.quick) { isExpanded.toggle() }
                 } label: {
                     Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 10))
+                        .font(.system(size: 11))
                 }
                 .buttonStyle(.borderless)
                 .foregroundColor(.secondary)
@@ -315,41 +379,19 @@ struct TaskSection: View {
         )
     }
 
-    private func addTask(title: String, minutes: Int?) {
-        let task: TaskItem
-        if let m = minutes, m > 0 {
-            task = TaskItem(
-                title: title,
-                status: .inProgress,
-                timerMinutes: m,
-                timerStart: Date(),
-                timerEnd: Date().addingTimeInterval(TimeInterval(m * 60))
-            )
-            state.activeTask = task
-            state.menuBarStatus = .focus
-            state.resetTimerFlags()
-        } else {
-            task = TaskItem(title: title, status: .pending)
-        }
-        state.tasks.append(task)
-        state.saveTasks()
-        if let m = minutes, m > 0 {
-            state.appendMessage(Message(role: .system, content: "✓ 已启动计时：\(title) · \(m) 分钟"))
-        } else {
-            state.appendMessage(Message(role: .system, content: "✓ 已添加任务：\(title)"))
-        }
-    }
 }
 
 struct AddTaskSheet: View {
-    @Environment(\.dismiss) var dismiss
     @State private var title = ""
     @State private var minutes = 25
     @State private var hasTimer = true
-    let onSave: (String, Int?) -> Void
+    @State private var pomodoroCycle = false
+    @State private var focusMode = false
+    let onSave: (String, Int?, Bool, Bool) -> Void
+    let onCancel: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 14) {
             Text("添加任务")
                 .font(.headline)
 
@@ -359,32 +401,57 @@ struct AddTaskSheet: View {
             Toggle("启动计时", isOn: $hasTimer)
 
             if hasTimer {
-                HStack {
+                HStack(spacing: 8) {
                     Text("时长")
                     Spacer()
-                    Stepper(value: $minutes, in: 1...240, step: 5) {
-                        Text("\(minutes) 分钟").monospacedDigit()
+                    TextField("25", value: $minutes, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 60)
+                        .multilineTextAlignment(.trailing)
+                        .onChange(of: minutes) { _, newValue in
+                            if newValue < 1 { minutes = 1 }
+                            else if newValue > 240 { minutes = 240 }
+                        }
+                    Text("分钟")
+                    Stepper("", value: $minutes, in: 1...240, step: 5)
+                        .labelsHidden()
+                }
+
+                Toggle(isOn: $pomodoroCycle) {
+                    HStack(spacing: 6) {
+                        Text("🍅")
+                        Text("Pomodoro 循环（自动 25+5 切换）")
+                            .font(.system(size: 12))
+                    }
+                }
+                Toggle(isOn: $focusMode) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "moon.fill")
+                        Text("深度专注（切换 macOS 勿扰）")
+                            .font(.system(size: 12))
                     }
                 }
             }
 
             HStack {
-                Button("取消") { dismiss() }
+                Button("取消") { onCancel() }
                     .keyboardShortcut(.cancelAction)
-
                 Spacer()
-
                 Button("保存") {
-                    onSave(title.trimmingCharacters(in: .whitespacesAndNewlines),
-                           hasTimer ? minutes : nil)
-                    dismiss()
+                    onSave(
+                        title.trimmingCharacters(in: .whitespacesAndNewlines),
+                        hasTimer ? minutes : nil,
+                        pomodoroCycle && hasTimer,
+                        focusMode && hasTimer
+                    )
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
         .padding(20)
-        .frame(width: 340)
+        .frame(width: 360)
+        .glassBackground()
     }
 }
 
@@ -422,7 +489,7 @@ struct TaskCard: View {
                 if task.status == .inProgress, let remaining = task.remainingSeconds {
                     HStack(spacing: 4) {
                         Image(systemName: "clock")
-                            .font(.system(size: 10))
+                            .font(.system(size: 11))
                         Text(formatTime(remaining))
                             .font(.system(size: 11, design: .monospaced))
                     }
@@ -453,67 +520,63 @@ struct TaskCard: View {
     private var actionButtons: some View {
         switch task.status {
         case .inProgress:
-            HStack(spacing: 4) {
-                Button { complete() } label: {
-                    Image(systemName: "checkmark.circle")
-                }
-                .buttonStyle(.borderless)
-                .help("完成任务")
-
-                Button { extend(10) } label: {
-                    Text("+10m").font(.system(size: 10, weight: .medium))
-                }
-                .buttonStyle(.borderless)
-                .help("延长 10 分钟")
-
-                Button { cancelTask() } label: {
-                    Image(systemName: "xmark.circle")
-                }
-                .buttonStyle(.borderless)
-                .help("取消任务")
+            HStack(spacing: 2) {
+                HoverIconButton(systemImage: "checkmark.circle", help: "完成任务") { complete() }
+                HoverIconButton(label: "+10m", help: "延长 10 分钟") { extend(10) }
+                HoverIconButton(systemImage: "xmark.circle", help: "取消任务") { cancelTask() }
             }
-            .foregroundColor(.secondary)
         case .pending:
-            HStack(spacing: 4) {
-                Button { startPending() } label: {
-                    Image(systemName: "play.circle")
-                }
-                .buttonStyle(.borderless)
-                .help("开始 25 分钟计时")
-
-                Button { cancelTask() } label: {
-                    Image(systemName: "xmark.circle")
-                }
-                .buttonStyle(.borderless)
-                .help("删除任务")
+            HStack(spacing: 2) {
+                HoverIconButton(systemImage: "play.circle", help: "开始 25 分钟计时") { startPending() }
+                HoverIconButton(systemImage: "xmark.circle", help: "删除任务") { cancelTask() }
             }
-            .foregroundColor(.secondary)
-        default:
-            EmptyView()
+        case .done:
+            HStack(spacing: 2) {
+                HoverIconButton(systemImage: "arrow.uturn.backward.circle", help: "撤销完成") { reopen() }
+            }
+        case .cancelled:
+            HStack(spacing: 2) {
+                HoverIconButton(systemImage: "arrow.uturn.backward.circle", help: "恢复为待办") { reopen() }
+            }
         }
     }
 
     private func complete() {
         guard let idx = state.tasks.firstIndex(where: { $0.id == task.id }) else { return }
+        state.tasks[idx].actualMinutes = AppState.actualMinutes(for: state.tasks[idx])
         state.tasks[idx].status = .done
-        if state.activeTask?.id == task.id {
+        let wasActive = state.activeTask?.id == task.id
+        if wasActive {
             state.activeTask = nil
             state.menuBarStatus = .idle
             state.resetTimerFlags()
         }
         state.saveTasks()
-        state.appendMessage(Message(role: .system, content: "✓ 已完成：\(task.title)"))
+        state.showBanner("已完成：\(task.title)", kind: .success)
+        let note = AppState.estimateVsActualNote(for: state.tasks[idx])
+        MemoryService.shared.appendToToday(.tasks, entry: "完成：\(task.title)\(note)")
+        state.enqueuePostMortem(state.tasks[idx])
+        state.refreshNextCandidates(excluding: task.id)
+        // T3-12 关闭 Focus mode
+        if state.tasks[idx].focusMode {
+            Task { await FocusModeService.shared.disable() }
+        }
     }
 
     private func cancelTask() {
         guard let idx = state.tasks.firstIndex(where: { $0.id == task.id }) else { return }
         state.tasks[idx].status = .cancelled
-        if state.activeTask?.id == task.id {
+        let wasActive = state.activeTask?.id == task.id
+        if wasActive {
             state.activeTask = nil
             state.menuBarStatus = .idle
             state.resetTimerFlags()
         }
         state.saveTasks()
+        state.enqueuePostMortem(state.tasks[idx])
+        if state.tasks[idx].focusMode {
+            Task { await FocusModeService.shared.disable() }
+        }
     }
 
     private func extend(_ minutes: Int) {
@@ -527,7 +590,8 @@ struct TaskCard: View {
             state.resetTimerFlags()
         }
         state.saveTasks()
-        state.appendMessage(Message(role: .system, content: "✓ 已延长 \(minutes) 分钟"))
+        state.showBanner("已延长 \(minutes) 分钟", kind: .info)
+        MemoryService.shared.appendToToday(.tasks, entry: "延长 \(minutes) 分钟：\(task.title)")
     }
 
     private func startPending() {
@@ -541,7 +605,19 @@ struct TaskCard: View {
         state.menuBarStatus = .focus
         state.resetTimerFlags()
         state.saveTasks()
-        state.appendMessage(Message(role: .system, content: "✓ 已启动计时：\(task.title) · \(minutes) 分钟"))
+        state.showBanner("已启动计时：\(task.title) · \(minutes) 分钟", kind: .success)
+        MemoryService.shared.appendToToday(.tasks, entry: "启动计时：\(task.title) · \(minutes) 分钟")
+    }
+
+    /// 从 done / cancelled 撤销回 pending
+    private func reopen() {
+        guard let idx = state.tasks.firstIndex(where: { $0.id == task.id }) else { return }
+        state.tasks[idx].status = .pending
+        state.tasks[idx].timerStart = nil
+        state.tasks[idx].timerEnd = nil
+        state.saveTasks()
+        state.showBanner("已撤销：\(task.title)", kind: .info)
+        MemoryService.shared.appendToToday(.tasks, entry: "撤销：\(task.title)")
     }
 
     @ViewBuilder
@@ -549,7 +625,7 @@ struct TaskCard: View {
         switch task.status {
         case .pending:
             Text("待办")
-                .font(.system(size: 10, weight: .medium))
+                .font(.system(size: 11, weight: .medium))
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
                 .background(Color.gray.opacity(0.3))
@@ -562,7 +638,7 @@ struct TaskCard: View {
                     .frame(width: 6, height: 6)
                 Text("进行中")
             }
-            .font(.system(size: 10, weight: .medium))
+            .font(.system(size: 11, weight: .medium))
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(Color.green.opacity(0.3))
@@ -574,7 +650,7 @@ struct TaskCard: View {
                 .foregroundColor(.green)
         case .cancelled:
             Text("已取消")
-                .font(.system(size: 10, weight: .medium))
+                .font(.system(size: 11, weight: .medium))
                 .foregroundColor(.red)
         }
     }
@@ -590,127 +666,176 @@ struct MessageBubble: View {
     let message: Message
     @EnvironmentObject var state: AppState
     @State private var hovering = false
-    @State private var hoverTask: DispatchWorkItem?
-    @State private var showCaptureButton = false
 
     private var isUser: Bool {
         message.role == .user
     }
 
     private var convertible: Bool {
-        // 仅 24 小时内的 user / assistant 消息可转
         message.role != .system &&
         Date().timeIntervalSince(message.timestamp) < 24 * 3600
+    }
+
+    /// 流式阶段 `<think>` 未闭合时为 true
+    private var isMidStreamThinking: Bool {
+        message.content.contains("<think>") && !message.content.contains("</think>")
     }
 
     var body: some View {
         let parsed = ThinkingParser.parse(message.content)
 
-        HStack {
-            if isUser { Spacer(minLength: 60) }
+        HStack(alignment: .top, spacing: 6) {
+            if isUser { Spacer(minLength: 40) }
+
+            if isUser { captureIconButton }
 
             VStack(alignment: isUser ? .trailing : .leading, spacing: 6) {
-                if let thinking = parsed.thinking {
+                if isMidStreamThinking {
+                    // 流式思考中：只显示占位灰字，不暴露原始 <think> 内容
+                    HStack(spacing: 4) {
+                        ProgressView().controlSize(.mini)
+                        Text("思考中...")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } else if let thinking = parsed.thinking {
                     ThinkingDisclosure(text: thinking)
                 }
 
-                MarkdownText(text: parsed.main.isEmpty ? message.content : parsed.main)
+                // 气泡正文：思考中跳过，thinking-only 跳过，有 main 才渲染
+                if let displayText = bubbleDisplayText(parsed: parsed), !displayText.isEmpty {
+                    MarkdownText(text: displayText)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
-                    .background(bubbleBackground)
-                    .cornerRadius(AppCornerRadius.bubble)
+                    .foregroundStyle(isUser ? .white : .primary)
+                    .background(
+                        RoundedRectangle(cornerRadius: AppCornerRadius.bubble, style: .continuous)
+                            .fill(isUser ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.ultraThinMaterial))
+                    )
                     .shadow(color: AppShadows.bubble.color, radius: AppShadows.bubble.radius, x: AppShadows.bubble.x, y: AppShadows.bubble.y)
-                    .overlay(alignment: .top) {
-                        if showCaptureButton && convertible {
-                            captureButton
-                                // 让按钮的"底部"对齐气泡的"顶部"，再向上偏移 6pt。无论按钮高度如何都稳定。
-                                .alignmentGuide(.top) { d in d[.bottom] + 6 }
-                                .transition(.opacity.combined(with: .move(edge: .bottom)))
-                        }
-                    }
+                }
 
-                // 时间戳 + 输入模式图标
-                HStack(spacing: 4) {
+                HStack(spacing: 6) {
                     if message.inputMode == .voice {
                         Image(systemName: "waveform")
-                            .font(.caption2)
+                            .font(.caption)
                     }
                     Text(formatTime(message.timestamp))
                         .font(AppTypography.timestamp)
                         .foregroundColor(.secondary.opacity(0.7))
                 }
             }
-            .onHover { isHovering in
-                hovering = isHovering
-                hoverTask?.cancel()
-                if isHovering && convertible {
-                    let task = DispatchWorkItem {
-                        withAnimation(.easeOut(duration: 0.15)) {
-                            showCaptureButton = true
-                        }
-                    }
-                    hoverTask = task
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: task)
-                } else {
-                    withAnimation(.easeIn(duration: 0.1)) {
-                        showCaptureButton = false
-                    }
-                }
-            }
 
-            if !isUser { Spacer(minLength: 60) }
+            if !isUser { captureIconButton }
+
+            if !isUser { Spacer(minLength: 40) }
         }
         .padding(.horizontal, 12)
+        .contentShape(Rectangle())  // 让整行 HStack 都可以捕获 hover
+        .onHover { isHovering in
+            // 整行 hover，移动到按钮不会失焦；hide 时小延迟避免在两个子视图之间抖动
+            if isHovering {
+                withAnimation(AppAnimations.quick) { hovering = true }
+            } else {
+                withAnimation(AppAnimations.quick) { hovering = false }
+            }
+        }
+    }
+
+    /// 恒定占位图标按钮：opacity 切换而非 show/hide，避免布局抖动导致闪烁
+    @ViewBuilder
+    private var captureIconButton: some View {
+        Button {
+            state.convertMessageToNote(message)
+        } label: {
+            Image(systemName: "tray.and.arrow.down")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.secondary)
+                .frame(width: 22, height: 22)
+                .background(
+                    Circle()
+                        .fill(Color.secondary.opacity(hovering ? 0.12 : 0))
+                )
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help("转随手记")
+        .opacity(hovering && convertible ? 1.0 : 0.0)
+        .allowsHitTesting(hovering && convertible)
+        .padding(.top, 4)  // 与气泡上缘对齐一点视觉余量
     }
 
     private struct ThinkingDisclosure: View {
         let text: String
         @State private var isExpanded = false
 
+        /// 折叠态：第一行灰色预览（参考 Claude 思考过程样式）
+        private var firstLineSnippet: String {
+            let firstLine = text.components(separatedBy: .newlines)
+                .first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty })?
+                .trimmingCharacters(in: .whitespaces) ?? ""
+            if firstLine.count > 64 {
+                let idx = firstLine.index(firstLine.startIndex, offsetBy: 64)
+                return String(firstLine[..<idx]) + "…"
+            }
+            return firstLine
+        }
+
         var body: some View {
-            DisclosureGroup(isExpanded: $isExpanded) {
-                MarkdownText(text: text)
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-                    .padding(8)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(Color(nsColor: .controlBackgroundColor).opacity(0.4))
-                    )
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "brain")
-                    Text("思考过程")
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 4) {
+                    Button {
+                        withAnimation(AppAnimations.quick) { isExpanded = false }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "chevron.down")
+                            Text("思考过程")
+                        }
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+
+                    MarkdownText(text: text)
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .padding(8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.4))
+                        )
                 }
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(.secondary)
+            } else {
+                Button {
+                    withAnimation(AppAnimations.quick) { isExpanded = true }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 11))
+                        Text(firstLineSnippet)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary.opacity(0.8))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("点击展开思考过程")
             }
         }
     }
 
-    private var captureButton: some View {
-        Button {
-            state.convertMessageToNote(message)
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "tray.and.arrow.down")
-                Text("随手记")
-            }
-            .font(.system(size: 11, weight: .medium))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(.ultraThinMaterial)
-            .cornerRadius(8)
-            .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
-        }
-        .buttonStyle(.plain)
+    private func bubbleDisplayText(parsed: ThinkingParser.ParsedContent) -> String? {
+        if isMidStreamThinking { return nil }
+        if parsed.main.isEmpty && parsed.thinking != nil { return nil }
+        return parsed.main.isEmpty ? message.content : parsed.main
     }
 
     private var bubbleBackground: some ShapeStyle {
         switch message.role {
         case .user:
-            return AnyShapeStyle(AppColors.primaryGradient)
+            return AnyShapeStyle(Color.accentColor)
         case .assistant:
             return AnyShapeStyle(AppColors.assistantBubble)
         case .system:
@@ -765,9 +890,25 @@ struct InputBar: View {
     @ObservedObject private var voice = VoiceService.shared
     @FocusState private var isFocused: Bool
     @State private var micPulse = false
+    @State private var slashSelectedIndex = 0
 
     private var isNoteMode: Bool {
         text.hasPrefix("/")
+    }
+
+    /// `/` 后面的关键词（去掉 `/` 前缀）
+    private var slashQuery: String {
+        guard text.hasPrefix("/") else { return "" }
+        return String(text.dropFirst()).trimmingCharacters(in: .whitespaces)
+    }
+
+    private var slashCommands: [SlashCommand] {
+        guard text.hasPrefix("/") else { return [] }
+        return SlashCommand.filtered(by: slashQuery)
+    }
+
+    private var showSlashMenu: Bool {
+        text.hasPrefix("/") && !slashCommands.isEmpty
     }
 
     private var borderColor: Color {
@@ -778,17 +919,58 @@ struct InputBar: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            // 输入框容器
-            HStack(spacing: 8) {
-                TextField(isNoteMode ? "记一下..." : "发送消息（/ 开头存为随手记）", text: $text)
-                    .textFieldStyle(.plain)
-                    .focused($isFocused)
-                    .font(AppTypography.body)
-                    .onSubmit {
-                        if !isLoading && !text.isEmpty {
-                            onSend()
+            // 输入框容器 + 命令补全菜单
+            VStack(spacing: 0) {
+                if showSlashMenu {
+                    SlashCommandMenuView(
+                        commands: slashCommands,
+                        selectedIndex: min(slashSelectedIndex, slashCommands.count - 1),
+                        onSelect: { executeSlashCommand($0) }
+                    )
+                    .padding(.bottom, 4)
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
+
+                HStack(spacing: 8) {
+                    TextField(isNoteMode ? "记一下..." : "发送消息（/ 开头存为随手记）", text: $text)
+                        .textFieldStyle(.plain)
+                        .focused($isFocused)
+                        .font(AppTypography.body)
+                        .onSubmit {
+                            if showSlashMenu {
+                                let idx = min(slashSelectedIndex, slashCommands.count - 1)
+                                if idx >= 0 && idx < slashCommands.count {
+                                    executeSlashCommand(slashCommands[idx])
+                                    return
+                                }
+                            }
+                            if !isLoading && !text.isEmpty {
+                                onSend()
+                            }
                         }
-                    }
+                        // 长按 Option+Space 录音松手后，VoiceService.transcript 更新 → 填入输入框
+                        .onChange(of: voice.transcript) { _, newValue in
+                            if !voice.isRecording && !newValue.isEmpty {
+                                text = newValue
+                            }
+                        }
+                        .onChange(of: text) { _, _ in
+                            slashSelectedIndex = 0
+                        }
+                        .onKeyPress(.upArrow) {
+                            guard showSlashMenu else { return .ignored }
+                            slashSelectedIndex = max(0, slashSelectedIndex - 1)
+                            return .handled
+                        }
+                        .onKeyPress(.downArrow) {
+                            guard showSlashMenu else { return .ignored }
+                            slashSelectedIndex = min(slashCommands.count - 1, slashSelectedIndex + 1)
+                            return .handled
+                        }
+                        .onKeyPress(.escape) {
+                            if showSlashMenu { text = ""; return .handled }
+                            return .ignored
+                        }
 
                 if isNoteMode {
                     Image(systemName: "tray.and.arrow.down")
@@ -820,6 +1002,7 @@ struct InputBar: View {
                 RoundedRectangle(cornerRadius: AppCornerRadius.input)
                     .stroke(borderColor, lineWidth: 1.5)
             )
+            } // closes VStack(spacing: 0) — 命令补全菜单 + 输入框容器
 
             // 麦克风按钮
             Button {
@@ -833,9 +1016,9 @@ struct InputBar: View {
                         Circle()
                             .fill(voice.isRecording ? .red.opacity(0.2) : Color.clear)
                     )
-                    .scaleEffect(voice.isRecording && micPulse ? 1.15 : 1.0)
+                    .scaleEffect(micPulse ? 1.15 : 1.0)
                     .animation(
-                        voice.isRecording
+                        micPulse
                             ? .easeInOut(duration: 0.6).repeatForever(autoreverses: true)
                             : .default,
                         value: micPulse
@@ -843,21 +1026,15 @@ struct InputBar: View {
             }
             .buttonStyle(.plain)
             .onChange(of: voice.isRecording) { _, isRec in
-                micPulse = isRec
+                withAnimation { micPulse = isRec }
             }
 
-            // 发送按钮
+            // 发送按钮（iMessage 风格：accentColor 圆形 + 白色箭头）
             Button(action: onSend) {
-                ZStack {
-                    Circle()
-                        .fill(AppColors.primaryGradient)
-                    Circle()
-                        .fill(text.isEmpty ? Color.gray.opacity(0.3) : Color.clear)
-                    Image(systemName: "arrow.up")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(text.isEmpty ? .secondary : .white)
-                }
-                .frame(width: 32, height: 32)
+                Image(systemName: "arrow.up.circle.fill")
+                    .font(.system(size: 28))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(text.isEmpty ? Color.secondary.opacity(0.4) : Color.accentColor)
             }
             .buttonStyle(.plain)
             .disabled(text.isEmpty || isLoading)
@@ -866,9 +1043,17 @@ struct InputBar: View {
         .padding(.vertical, 12)
         .background(
             Rectangle()
-                .fill(.regularMaterial)
-                .overlay(Divider(), alignment: .top)
+                .fill(.ultraThinMaterial)
+                .overlay(Divider().opacity(0.5), alignment: .top)
         )
+    }
+
+    private func executeSlashCommand(_ cmd: SlashCommand) {
+        let shouldClear = cmd.execute(state)
+        if shouldClear {
+            text = ""
+        }
+        // "随手记" 命令不清空：保留 "/" 让用户继续输入内容
     }
 
     private func toggleRecording() {
@@ -877,12 +1062,7 @@ struct InputBar: View {
             if !VoiceService.shared.transcript.isEmpty {
                 text = VoiceService.shared.transcript
             } else {
-                // 语音识别结果为空
-                let errorMsg = Message(
-                    role: .system,
-                    content: "未识别到语音，请重试"
-                )
-                state.appendMessage(errorMsg)
+                state.showBanner("未识别到语音，请重试", kind: .info)
             }
         } else {
             Task {
@@ -891,18 +1071,10 @@ struct InputBar: View {
                     do {
                         try VoiceService.shared.startRecording()
                     } catch {
-                        let errorMsg = Message(
-                            role: .system,
-                            content: "语音识别失败：\(error.localizedDescription)"
-                        )
-                        state.appendMessage(errorMsg)
+                        state.showBanner("语音识别失败：\(error.localizedDescription)", kind: .error, duration: 5.0)
                     }
                 } else {
-                    let errorMsg = Message(
-                        role: .system,
-                        content: "语音识别未授权，请在系统设置 > 隐私与安全性 > 语音识别中开启"
-                    )
-                    state.appendMessage(errorMsg)
+                    state.showBanner("语音识别未授权，请在系统设置 > 隐私与安全性 > 语音识别中开启", kind: .warning, duration: 6.0)
                 }
             }
         }

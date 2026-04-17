@@ -107,18 +107,60 @@ public enum ToolExecutor {
                 ]
             ]
         ],
+        // update_notion_page 已关闭（用户要求：不可删除、不可更新、可新写入、可读取）
         [
             "type": "function",
             "function": [
-                "name": "update_notion_page",
-                "description": "更新 Notion 页面属性。此操作需要用户确认。",
+                "name": "get_tasks",
+                "description": "获取用户当前的任务列表。可按状态过滤。返回任务标题、状态、预估/实际时长等。",
                 "parameters": [
                     "type": "object",
                     "properties": [
-                        "page_id": ["type": "string"],
-                        "properties": ["type": "object"]
+                        "status": ["type": "string", "enum": ["pending", "in_progress", "done", "cancelled", "all"], "description": "过滤状态，默认 all"]
+                    ]
+                ]
+            ]
+        ],
+        [
+            "type": "function",
+            "function": [
+                "name": "get_inbox_notes",
+                "description": "获取用户的随手记列表。可按状态过滤。返回内容、捕获时间、来源。",
+                "parameters": [
+                    "type": "object",
+                    "properties": [
+                        "status": ["type": "string", "enum": ["pending", "done", "expired", "all"], "description": "过滤状态，默认 pending"]
+                    ]
+                ]
+            ]
+        ],
+        [
+            "type": "function",
+            "function": [
+                "name": "get_today_daily_note",
+                "description": "获取今天的 daily note 内容（包含任务完成记录、定时触发、随手记、学习候选等）。",
+                "parameters": ["type": "object", "properties": [:]]
+            ]
+        ],
+        [
+            "type": "function",
+            "function": [
+                "name": "get_scheduled_tasks",
+                "description": "获取用户配置的定时提醒列表。返回名称、时间、周期、提示词、是否启用。",
+                "parameters": ["type": "object", "properties": [:]]
+            ]
+        ],
+        [
+            "type": "function",
+            "function": [
+                "name": "memory_search",
+                "description": "在用户的记忆系统（长期记忆 MEMORY.md、用户画像 USER.md、历史 daily note）中按关键词检索。返回匹配片段 + 来源日期。适用于用户问'上周我聊过 X 吗'、'我有没有记过关于 Y 的事'。",
+                "parameters": [
+                    "type": "object",
+                    "properties": [
+                        "query": ["type": "string", "description": "搜索关键词"]
                     ],
-                    "required": ["page_id", "properties"]
+                    "required": ["query"]
                 ]
             ]
         ]
@@ -126,8 +168,7 @@ public enum ToolExecutor {
 
     /// 需要 UI 确认才执行的 tool
     public static let requiresConfirmation: Set<String> = [
-        "create_notion_page",
-        "update_notion_page"
+        "create_notion_page"
     ]
 
     @MainActor
@@ -168,6 +209,23 @@ public enum ToolExecutor {
             state.openInbox()
             return successResult(["pending_count": state.unreadNoteCount])
 
+        case "get_tasks":
+            return executeGetTasks(args: args, state: state)
+
+        case "get_inbox_notes":
+            return executeGetInboxNotes(args: args, state: state)
+
+        case "get_today_daily_note":
+            let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
+            let content = MemoryService.shared.readDaily(date: Date())
+            return successResult(["date": f.string(from: Date()), "content": content.isEmpty ? "今天暂无记录" : content])
+
+        case "get_scheduled_tasks":
+            let items = state.scheduledTasks.map { t -> [String: Any] in
+                ["name": t.name, "time": t.time, "schedule": "\(t.schedule)", "prompt": t.prompt, "enabled": t.enabled]
+            }
+            return successResult(["count": items.count, "tasks": items])
+
         case "query_notion_database":
             return await executeQueryNotion(args: args)
 
@@ -175,11 +233,90 @@ public enum ToolExecutor {
             return await executeCreateNotion(args: args)
 
         case "update_notion_page":
-            return await executeUpdateNotion(args: args)
+            return errorResult("update_notion_page 已关闭，当前只允许读取和新建")
+
+        case "memory_search":
+            guard let query = args["query"] as? String, !query.isEmpty else {
+                return errorResult("搜索词为空")
+            }
+            return executeMemorySearch(query: query)
 
         default:
             return errorResult("未知工具：\(call.function.name)")
         }
+    }
+
+    @MainActor
+    private static func executeGetTasks(args: [String: Any], state: AppState) -> String {
+        let statusFilter = args["status"] as? String ?? "all"
+        let filtered: [TaskItem]
+        if statusFilter == "all" {
+            filtered = state.tasks
+        } else if let s = TaskStatus(rawValue: statusFilter == "in_progress" ? "in_progress" : statusFilter) {
+            filtered = state.tasks.filter { $0.status == s }
+        } else {
+            filtered = state.tasks
+        }
+        let items: [[String: Any]] = filtered.map { t in
+            var d: [String: Any] = ["title": t.title, "status": t.status.rawValue]
+            if let m = t.timerMinutes { d["estimate_minutes"] = m }
+            if let a = t.actualMinutes { d["actual_minutes"] = a }
+            if let r = t.remainingSeconds { d["remaining_seconds"] = r }
+            return d
+        }
+        return successResult(["count": items.count, "tasks": items])
+    }
+
+    @MainActor
+    private static func executeGetInboxNotes(args: [String: Any], state: AppState) -> String {
+        let statusFilter = args["status"] as? String ?? "pending"
+        let filtered: [Note]
+        if statusFilter == "all" {
+            filtered = state.notes.filter { $0.status != .deleted }
+        } else if let s = Note.Status(rawValue: statusFilter) {
+            filtered = state.notes.filter { $0.status == s }
+        } else {
+            filtered = state.notes.filter { $0.status == .pending }
+        }
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd HH:mm"
+        let items: [[String: String]] = filtered.map { n in
+            ["content": n.content, "captured_at": f.string(from: n.capturedAt), "source": n.source.rawValue, "status": n.status.rawValue]
+        }
+        return successResult(["count": items.count, "notes": items])
+    }
+
+    @MainActor
+    private static func executeMemorySearch(query: String) -> String {
+        let memoryDir = AppState.dataDirectory.appendingPathComponent("memory")
+        let fm = FileManager.default
+        var results: [[String: String]] = []
+        let keywords = query.lowercased().components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+        guard !keywords.isEmpty else { return errorResult("关键词为空") }
+
+        let enumerator = fm.enumerator(at: memoryDir, includingPropertiesForKeys: nil)
+        while let url = enumerator?.nextObject() as? URL {
+            guard url.pathExtension == "md" else { continue }
+            guard let content = try? String(contentsOf: url, encoding: .utf8) else { continue }
+            let lines = content.components(separatedBy: .newlines)
+            let source = url.deletingPathExtension().lastPathComponent
+            for (lineNum, line) in lines.enumerated() {
+                let lower = line.lowercased()
+                if keywords.allSatisfy({ lower.contains($0) }) {
+                    results.append([
+                        "source": source,
+                        "line": String(lineNum + 1),
+                        "text": line.trimmingCharacters(in: .whitespaces)
+                    ])
+                    if results.count >= 20 { break }
+                }
+            }
+            if results.count >= 20 { break }
+        }
+
+        if results.isEmpty {
+            return successResult(["matches": 0, "message": "未找到匹配：\(query)"])
+        }
+        return successResult(["matches": results.count, "results": results])
     }
 
     @MainActor

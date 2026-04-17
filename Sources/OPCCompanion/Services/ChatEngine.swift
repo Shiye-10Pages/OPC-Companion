@@ -106,10 +106,14 @@ public final class ChatEngine: @unchecked Sendable {
                     } else {
                         result = #"{"status":"canceled","message":"用户取消了操作"}"#
                         await MainActor.run {
-                            AppState.shared.appendMessage(Message(
-                                role: .system,
-                                content: "✗ 已取消 Notion 操作：\(call.function.name)"
-                            ))
+                            AppState.shared.showBanner(
+                                "已取消 Notion 操作：\(call.function.name)",
+                                kind: .info
+                            )
+                            MemoryService.shared.appendToToday(
+                                .notion,
+                                entry: "用户取消：\(call.function.name)"
+                            )
                         }
                     }
                 } else {
@@ -209,8 +213,19 @@ public final class ChatEngine: @unchecked Sendable {
         var wire: [WireMessage] = []
 
         let trimmed = systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty {
-            wire.append(WireMessage(role: "system", content: trimmed))
+        let memorySnapshot = MemoryService.shared.composeSnapshot()
+        let stateSnapshot = Self.buildStateSnapshot()
+        var combined = trimmed
+        if !memorySnapshot.isEmpty {
+            if !combined.isEmpty { combined += "\n\n" }
+            combined += memorySnapshot
+        }
+        if !stateSnapshot.isEmpty {
+            if !combined.isEmpty { combined += "\n\n" }
+            combined += stateSnapshot
+        }
+        if !combined.isEmpty {
+            wire.append(WireMessage(role: "system", content: combined))
         }
 
         if useConversationHistory {
@@ -220,7 +235,11 @@ public final class ChatEngine: @unchecked Sendable {
 
             for msg in history {
                 let role = msg.role == .user ? "user" : "assistant"
-                wire.append(WireMessage(role: role, content: msg.content))
+                // 老 assistant 回复可能含 [ACTION:...] 指令串，发回 API 会强化错误模式，先剥离
+                let content = role == "assistant"
+                    ? ThinkingParser.stripLegacyActionTags(msg.content)
+                    : msg.content
+                wire.append(WireMessage(role: role, content: content))
             }
 
             if wire.last?.role != "user" || wire.last?.content != userMessage {
@@ -245,6 +264,50 @@ public final class ChatEngine: @unchecked Sendable {
                 useConversationHistory: useConversationHistory
             )
         }
+    }
+
+    /// 实时状态简报：注入 system prompt，让 AI 感知用户在 app 内的完整上下文
+    @MainActor
+    private static func buildStateSnapshot() -> String {
+        let state = AppState.shared
+        var lines: [String] = ["## 当前状态"]
+
+        // 活跃计时
+        if let active = state.activeTask, active.status == .inProgress {
+            let remaining = active.remainingSeconds.map { "\($0 / 60):\(String(format: "%02d", $0 % 60))" } ?? "?"
+            lines.append("- 活跃计时: \(active.title) (剩余 \(remaining))")
+        }
+
+        // 待办任务
+        let pending = state.tasks.filter { $0.status == .pending }
+        if !pending.isEmpty {
+            let names = pending.prefix(5).map { $0.title }.joined(separator: " / ")
+            lines.append("- 待办任务(\(pending.count)): \(names)")
+        }
+
+        // 今日已完成
+        let done = state.tasks.filter { $0.status == .done }
+        if !done.isEmpty {
+            lines.append("- 今日已完成: \(done.count) 个")
+        }
+
+        // 未处理随手记
+        let noteCount = state.unreadNoteCount
+        if noteCount > 0 {
+            lines.append("- 未处理随手记: \(noteCount) 条")
+        }
+
+        // 定时任务
+        let enabledTimers = state.scheduledTasks.filter { $0.enabled }
+        if !enabledTimers.isEmpty {
+            let names = enabledTimers.prefix(3).map { "\($0.time) \($0.name)" }.joined(separator: " / ")
+            lines.append("- 定时提醒(\(enabledTimers.count)): \(names)")
+        }
+
+        lines.append("")
+        lines.append("你可以调用 get_tasks / get_inbox_notes / get_today_daily_note / get_scheduled_tasks 获取详细信息。")
+
+        return lines.count > 3 ? lines.joined(separator: "\n") : ""
     }
 
     private static func resolvedEndpoint(from config: APIConfig) -> URL {

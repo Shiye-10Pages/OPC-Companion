@@ -41,5 +41,6 @@ public struct Note: Identifiable, Codable, Sendable {
         case pending
         case done
         case deleted
+        case expired    // 超过 48h 未处理自动进入这个状态（砍-A）
     }
 }

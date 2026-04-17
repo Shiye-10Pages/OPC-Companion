@@ -29,13 +29,14 @@ final class UIBehaviorTests: XCTestCase {
         invokeTick(on: state)
         XCTAssertEqual(state.menuBarStatus, .warning)
         XCTAssertTrue(state.timerWarningFired)
-        let warningMsgs = state.messages.filter { $0.content.contains("剩余时间不足") }
-        XCTAssertEqual(warningMsgs.count, 1, "首次跨阈值应只触发一次")
+        // 新设计：剩余 <20% 触发 banner，不进消息流
+        XCTAssertNotNil(state.banner, "首次跨阈值应触发 banner")
+        XCTAssertTrue(state.banner?.text.contains("剩余时间") ?? false)
+        let firstBannerID = state.banner?.id
 
-        // 再次 tick，不应再插一条
+        // 再次 tick，banner 不应被替换
         invokeTick(on: state)
-        let warningMsgsAfter = state.messages.filter { $0.content.contains("剩余时间不足") }
-        XCTAssertEqual(warningMsgsAfter.count, 1, "防重触发标志应阻止重复")
+        XCTAssertEqual(state.banner?.id, firstBannerID, "防重触发标志应阻止 banner 被替换")
     }
 
     func testTickFiresOvertimeOnceWhenExpired() {

@@ -291,7 +291,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         panel.delegate = self
 
         let effectView = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: 760, height: 520))
-        effectView.material = .hudWindow
+        effectView.material = .popover          // 比 hudWindow 更轻透，接近 Liquid Glass
         effectView.blendingMode = .behindWindow
         effectView.state = .active
         effectView.wantsLayer = true
@@ -418,9 +418,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         requestNotificationAuthorization()
         state.checkScheduledTasks()
 
+        // 启动即做一次：跨日归档 + 跨周归档 + 随手记 48h 过期
+        InboxService.shared.expirePendingNotesOlderThan48h(state: state)
+        Task { @MainActor in
+            await SessionArchiveService.shared.checkRolloverNeeded()
+            await WeeklyArchiveService.shared.checkWeeklyRolloverIfNeeded()
+        }
+
         scheduledCheckTimer = Timer.scheduledTimer(withTimeInterval: 60.0, repeats: true) { _ in
             MainActor.assumeIsolated {
                 AppState.shared.checkScheduledTasks()
+                AppState.shared.checkProgressPing()
+                InboxService.shared.expirePendingNotesOlderThan48h(state: AppState.shared)
+                Task { @MainActor in
+                    await SessionArchiveService.shared.checkRolloverNeeded()
+                    await WeeklyArchiveService.shared.checkWeeklyRolloverIfNeeded()
+                }
             }
         }
 
@@ -641,6 +654,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         p.alphaValue = 1.0
         p.makeKeyAndOrderFront(nil)
         state.isPanelVisible = true
+
+        // 打开面板时：每日首次检查早晨仪式（Dreaming 审核改为仪式完成后衔接 + /学习 按需召唤）
+        state.checkMorningRitual()
         
         // 列出 NSApp 所有 windows
         dlog("[INFO] NSApp windows count: \(NSApplication.shared.windows.count)")
@@ -680,7 +696,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func hideQuickCapture() {
-        quickCapturePanel?.orderOut(nil)
+        guard let p = quickCapturePanel, p.isVisible else { return }
+        // PRD-QC：捕获后快捷输入条淡出消失，不在消息流留痕。
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.18
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            p.animator().alphaValue = 0.0
+        }, completionHandler: {
+            // 不假设回调线程，显式派发到 main actor，避免 NSAnimationContext 线程约定变化时出错
+            DispatchQueue.main.async {
+                p.orderOut(nil)
+                p.alphaValue = 1.0
+            }
+        })
     }
 
     private func makeQuickCapturePanel() -> NSPanel {
@@ -701,7 +729,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         panel.delegate = self
 
         let effect = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: 520, height: 48))
-        effect.material = .hudWindow
+        effect.material = .popover
         effect.blendingMode = .behindWindow
         effect.state = .active
         effect.wantsLayer = true

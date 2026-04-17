@@ -5,8 +5,7 @@ struct SettingsView: View {
     @EnvironmentObject var state: AppState
     @State private var systemPromptText = ""
     @State private var debounceTimer: Timer?
-    @State private var showingTaskSheet = false
-    @State private var editingTask: ScheduledTask?
+    // showingTaskSheet / editingTask 已迁到 AppState（showScheduledTaskForm + editingScheduledTask）
     @State private var selectedVoice = ""
     @State private var selectedProvider = "siliconflow"
     @State private var apiKey = ""
@@ -57,8 +56,8 @@ struct SettingsView: View {
                             .font(.headline)
                         Spacer()
                         Button {
-                            editingTask = nil
-                            showingTaskSheet = true
+                            state.editingScheduledTask = nil
+                            state.showScheduledTaskForm = true
                         } label: {
                             Image(systemName: "plus")
                         }
@@ -72,8 +71,8 @@ struct SettingsView: View {
                     } else {
                         ForEach(state.scheduledTasks) { task in
                             ScheduledTaskRow(task: task) {
-                                editingTask = task
-                                showingTaskSheet = true
+                                state.editingScheduledTask = task
+                                state.showScheduledTaskForm = true
                             }
                         }
                     }
@@ -227,23 +226,7 @@ struct SettingsView: View {
             debounceTimer?.invalidate()
             debounceTimer = nil
         }
-        .sheet(isPresented: $showingTaskSheet) {
-            ScheduledTaskForm(
-                task: editingTask,
-                onSave: { newTask in
-                    if let index = state.scheduledTasks.firstIndex(where: { $0.id == newTask.id }) {
-                        state.scheduledTasks[index] = newTask
-                    } else {
-                        state.scheduledTasks.append(newTask)
-                    }
-                    state.saveScheduledTasks()
-                },
-                onDelete: { task in
-                    state.scheduledTasks.removeAll { $0.id == task.id }
-                    state.saveScheduledTasks()
-                }
-            )
-        }
+        // .sheet 已迁到 MainTabView overlay（showScheduledTaskForm），避免 borderless NSPanel 崩
     }
 
     @ViewBuilder
@@ -289,7 +272,7 @@ struct SettingsView: View {
                 .foregroundColor(done ? .secondary : .primary)
             if required && !done {
                 Text("必需")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: 11, weight: .medium))
                     .padding(.horizontal, 6)
                     .padding(.vertical, 1)
                     .background(Color.orange.opacity(0.2))
@@ -477,11 +460,11 @@ struct ScheduledTaskRow: View {
 
 struct ScheduledTaskForm: View {
     @EnvironmentObject var state: AppState
-    @Environment(\.dismiss) var dismiss
 
     let task: ScheduledTask?
     let onSave: (ScheduledTask) -> Void
     let onDelete: (ScheduledTask) -> Void
+    let onCancel: () -> Void
 
     @State private var name = ""
     @State private var time = Date()
@@ -531,7 +514,7 @@ struct ScheduledTaskForm: View {
                 if task != nil {
                     Button("删除") {
                         onDelete(task!)
-                        dismiss()
+                        onCancel()
                     }
                     .foregroundColor(.red)
                 }
@@ -539,7 +522,7 @@ struct ScheduledTaskForm: View {
                 Spacer()
 
                 Button("取消") {
-                    dismiss()
+                    onCancel()
                 }
                 .keyboardShortcut(.cancelAction)
 
@@ -553,7 +536,7 @@ struct ScheduledTaskForm: View {
                         enabled: enabled
                     )
                     onSave(newTask)
-                    dismiss()
+                    onCancel()
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(name.isEmpty || prompt.isEmpty)
