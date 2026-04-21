@@ -65,7 +65,36 @@ struct StatusBarPopoverView: View {
                         }
                     }
 
-                    if state.activeTask == nil && upcomingScheduled.isEmpty && pendingTasks.isEmpty {
+                    // 定时提醒管理区：新建/编辑/删除/启停
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            sectionTitle("定时提醒", icon: "clock.arrow.circlepath")
+                            Spacer()
+                            Button {
+                                openScheduledTaskForm(edit: nil)
+                            } label: {
+                                Image(systemName: "plus.circle.fill")
+                                    .foregroundColor(.accentColor)
+                                    .font(.system(size: CGFloat(15) * state.fontScale))
+                            }
+                            .buttonStyle(.plain)
+                            .help("新建定时提醒")
+                        }
+                        if state.scheduledTasks.isEmpty {
+                            Text("未设置定时提醒")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .padding(.horizontal, 4)
+                        } else {
+                            ForEach(state.scheduledTasks) { task in
+                                ScheduledTaskRow(task: task) {
+                                    openScheduledTaskForm(edit: task)
+                                }
+                            }
+                        }
+                    }
+
+                    if state.activeTask == nil && upcomingScheduled.isEmpty && pendingTasks.isEmpty && state.scheduledTasks.isEmpty {
                         idleState
                     }
                 }
@@ -87,10 +116,10 @@ struct StatusBarPopoverView: View {
             Image(systemName: "bubble.left.fill")
                 .foregroundColor(AppColors.primary)
             Text("OPC 伴侣")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: CGFloat(18) * state.fontScale, weight: .semibold))
             Spacer()
             Text(currentTime())
-                .font(.system(size: 12, design: .monospaced))
+                .font(.system(size: CGFloat(15) * state.fontScale, design: .monospaced))
                 .foregroundColor(.secondary)
         }
         .padding(.horizontal, 16)
@@ -101,9 +130,9 @@ struct StatusBarPopoverView: View {
     private func sectionTitle(_ text: String, icon: String) -> some View {
         HStack(spacing: 6) {
             Image(systemName: icon)
-                .font(.system(size: 11))
+                .font(.system(size: CGFloat(14) * state.fontScale))
             Text(text)
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: CGFloat(14) * state.fontScale, weight: .medium))
         }
         .foregroundColor(.secondary)
     }
@@ -117,18 +146,18 @@ struct StatusBarPopoverView: View {
                         .fill(AppColors.taskInProgress)
                         .frame(width: 8, height: 8)
                     Text("进行中")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: CGFloat(14) * state.fontScale, weight: .medium))
                         .foregroundColor(AppColors.taskInProgress)
                     Spacer()
                 }
                 HStack {
                     Text(task.title)
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.system(size: CGFloat(19) * state.fontScale, weight: .semibold))
                         .lineLimit(1)
                     Spacer()
                     if let remaining = task.remainingSeconds {
                         Text(formatDuration(remaining))
-                            .font(.system(size: 18, weight: .semibold, design: .monospaced))
+                            .font(.system(size: CGFloat(22) * state.fontScale, weight: .semibold, design: .monospaced))
                             .foregroundColor(remaining < 300 ? AppColors.statusError : .primary)
                     }
                 }
@@ -148,11 +177,11 @@ struct StatusBarPopoverView: View {
     private func upcomingRow(_ task: ScheduledTask) -> some View {
         HStack(spacing: 8) {
             Text(task.time)
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                .font(.system(size: CGFloat(15) * state.fontScale, weight: .medium, design: .monospaced))
                 .foregroundColor(.secondary)
                 .frame(width: 44, alignment: .leading)
             Text(task.name)
-                .font(.system(size: 12))
+                .font(.system(size: CGFloat(15) * state.fontScale))
                 .lineLimit(1)
             Spacer()
         }
@@ -166,7 +195,7 @@ struct StatusBarPopoverView: View {
                 .stroke(Color.secondary, lineWidth: 1)
                 .frame(width: 8, height: 8)
             Text(task.title)
-                .font(.system(size: 12))
+                .font(.system(size: CGFloat(15) * state.fontScale))
                 .lineLimit(1)
             Spacer()
         }
@@ -177,7 +206,7 @@ struct StatusBarPopoverView: View {
     private var idleState: some View {
         VStack(spacing: 10) {
             Image(systemName: "sparkles")
-                .font(.system(size: 24))
+                .font(.system(size: CGFloat(30) * state.fontScale))
                 .foregroundColor(.secondary)
             Text("暂无进行中的任务")
                 .font(.subheadline)
@@ -197,7 +226,7 @@ struct StatusBarPopoverView: View {
                     Image(systemName: "rectangle.expand.vertical")
                     Text("打开面板")
                 }
-                .font(.system(size: 12))
+                .font(.system(size: CGFloat(15) * state.fontScale))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
             }
@@ -205,7 +234,7 @@ struct StatusBarPopoverView: View {
 
             Button(action: openSettings) {
                 Image(systemName: "gearshape")
-                    .font(.system(size: 12))
+                    .font(.system(size: CGFloat(15) * state.fontScale))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 6)
             }
@@ -215,7 +244,7 @@ struct StatusBarPopoverView: View {
 
             Button(action: quit) {
                 Image(systemName: "power")
-                    .font(.system(size: 12))
+                    .font(.system(size: CGFloat(15) * state.fontScale))
                     .foregroundColor(AppColors.statusError)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 6)
@@ -230,16 +259,26 @@ struct StatusBarPopoverView: View {
 
     private func openPanel() {
         AppDelegate.shared?.popover?.close()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) {
             AppDelegate.shared?.showPanel()
         }
     }
 
     private func openSettings() {
         AppDelegate.shared?.popover?.close()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) {
             AppDelegate.shared?.showPanel()
             AppState.shared.selectedTab = .settings
+        }
+    }
+
+    /// 新建或编辑定时提醒：关 popover → 开主面板 → MainTabView overlay 弹出表单
+    private func openScheduledTaskForm(edit task: ScheduledTask?) {
+        AppDelegate.shared?.popover?.close()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) {
+            AppDelegate.shared?.showPanel()
+            AppState.shared.editingScheduledTask = task
+            AppState.shared.showScheduledTaskForm = true
         }
     }
 

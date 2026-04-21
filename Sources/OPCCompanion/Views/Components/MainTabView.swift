@@ -8,6 +8,13 @@ struct MainTabView: View {
             VStack(spacing: 0) {
                 StatusBar(activeTimerTitle: state.activeTask?.title)
 
+                // 未锁定焦点 常驻提示（TimelineView 驱动小时判断，用户"完成仪式"后会自动消失）
+                TimelineView(.periodic(from: .now, by: 60)) { _ in
+                    if shouldShowRitualMissingBar() {
+                        ritualMissingBar
+                    }
+                }
+
                 if state.showProgressPingPanel {
                     ProgressPingView()
                         .padding(.horizontal, 12)
@@ -129,6 +136,37 @@ struct MainTabView: View {
             )
         }
         .transition(.opacity)
+    }
+
+    // 早晨仪式未做的常驻提示条：当 hour ≥ 10 且今天没做仪式时显示，做完自动消失
+    private var ritualMissingBar: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "sunrise.fill")
+                .font(.system(size: 12))
+                .foregroundStyle(Color(nsColor: .systemOrange))
+            Text("今日未锁定焦点")
+                .font(.system(size: 12))
+                .foregroundStyle(.primary)
+            Spacer()
+            Button("立刻做") {
+                state.showMorningRitual = true
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
+        .background(Color(nsColor: .systemOrange).opacity(0.08))
+        .overlay(Divider().opacity(0.5), alignment: .bottom)
+    }
+
+    private func shouldShowRitualMissingBar() -> Bool {
+        let now = Date()
+        let hour = Calendar.current.component(.hour, from: now)
+        guard hour >= 10 else { return false }
+        let df = DateFormatter(); df.dateFormat = "yyyy-MM-dd"
+        let today = df.string(from: now)
+        return state.lastMorningRitualDate != today
     }
 
     private var popoverBackdrop: some View {

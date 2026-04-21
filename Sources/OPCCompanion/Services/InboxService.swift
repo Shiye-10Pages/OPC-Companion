@@ -66,11 +66,15 @@ public final class InboxService: @unchecked Sendable {
 
     /// 砍-A：扫描随手记，把 pending 且 capturedAt 距今 >48h 的标记为 .expired。
     /// state 的 notes 数组同步更新，便于 UI 实时反映。
+    /// 注意：kind == .wish 的"我想"条目属于远期愿望池，不参与 48h 过期机制。
     @MainActor
     public func expirePendingNotesOlderThan48h(state: AppState) {
         let cutoff = Date().addingTimeInterval(-48 * 3600)
         var changed = false
-        for i in state.notes.indices where state.notes[i].status == .pending && state.notes[i].capturedAt < cutoff {
+        for i in state.notes.indices
+            where state.notes[i].status == .pending
+                && state.notes[i].kind != .wish
+                && state.notes[i].capturedAt < cutoff {
             state.notes[i].status = .expired
             state.notes[i].processedAt = Date()
             changed = true

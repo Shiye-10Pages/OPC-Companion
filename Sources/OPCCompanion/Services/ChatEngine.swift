@@ -64,6 +64,23 @@ public final class ChatEngine: @unchecked Sendable {
             throw ChatError.missingAPIKey
         }
 
+        // Wish Clearing session 维护：过期兜底 + 轮数计数。
+        // 只有以 /聊聊 开头的消息才算 wish 回合；普通对话在 session 活期内也不污染 processedCount。
+        // 归档服务不走历史，完全不影响 session。
+        if useConversationHistory {
+            let isWishTurn = userMessage.hasPrefix("/聊聊")
+            await MainActor.run {
+                let state = AppState.shared
+                if let session = state.wishClearingSession {
+                    if session.expired {
+                        state.endWishClearingSession()
+                    } else if isWishTurn {
+                        state.incrementWishClearingProcessed()
+                    }
+                }
+            }
+        }
+
         let clientConfig = MiniMaxClient.Config(
             apiKey: apiKey,
             endpoint: Self.resolvedEndpoint(from: apiConfig),
@@ -78,6 +95,10 @@ public final class ChatEngine: @unchecked Sendable {
         )
 
         var finalText = ""
+        // H6：本轮已被用户取消过的 tool 名，同轮再次调用直接短路，避免连弹 4 次确认框
+        var canceledThisTurn: Set<String> = []
+        var hitLimit = false
+
         for round in 0..<Self.maxToolRoundTrips {
             let (assistantContent, toolCalls, _) = try await drainStream(
                 client: client,
@@ -91,7 +112,10 @@ public final class ChatEngine: @unchecked Sendable {
                 toolCalls: toolCalls.isEmpty ? nil : toolCalls
             ))
 
-            finalText = assistantContent.isEmpty ? finalText : assistantContent
+            // M7：多轮时累积 finalText 而不是只取最后一轮，避免 ChatView 覆盖时丢前几轮内容
+            if !assistantContent.isEmpty {
+                finalText = finalText.isEmpty ? assistantContent : "\(finalText)\n\n\(assistantContent)"
+            }
 
             if toolCalls.isEmpty {
                 break
@@ -99,12 +123,16 @@ public final class ChatEngine: @unchecked Sendable {
 
             for call in toolCalls {
                 let result: String
-                if ToolExecutor.requiresConfirmation.contains(call.function.name) {
+                if canceledThisTurn.contains(call.function.name) {
+                    // 本轮用户已明确取消过该 tool，短路返回，引导 AI 放弃
+                    result = #"{"status":"canceled","message":"用户本次已明确不做此类操作，请改用其他方式或询问用户"}"#
+                } else if ToolExecutor.requiresConfirmation.contains(call.function.name) {
                     let approved = await NotionConfirmManager.shared.requestConfirmation(toolCall: call)
                     if approved {
                         result = await ToolExecutor.execute(call)
                     } else {
                         result = #"{"status":"canceled","message":"用户取消了操作"}"#
+                        canceledThisTurn.insert(call.function.name)
                         await MainActor.run {
                             AppState.shared.showBanner(
                                 "已取消 Notion 操作：\(call.function.name)",
@@ -123,8 +151,35 @@ public final class ChatEngine: @unchecked Sendable {
             }
 
             if round == Self.maxToolRoundTrips - 1 {
-                // 达到最大回合数，强制结束
-                break
+                hitLimit = true
+            }
+        }
+
+        // H7：达到 round 上限时，最后一轮的 tool result 从没回灌给 AI 过。
+        // 追加一次无 tool 的收尾请求，让 AI 基于已有 tool_results 给用户一个可见的总结文本。
+        if hitLimit, wire.last?.role == "tool" {
+            do {
+                let (wrapContent, _, _) = try await drainStream(
+                    client: client,
+                    wire: wire,
+                    onAssistantDelta: onAssistantDelta
+                )
+                if !wrapContent.isEmpty {
+                    finalText = finalText.isEmpty ? wrapContent : "\(finalText)\n\n\(wrapContent)"
+                }
+            } catch {
+                // 收尾请求失败不 fatal，沿用已有 finalText
+                logWarn("chat", "wrap-up drain failed: \(error.localizedDescription)")
+            }
+        }
+
+        // H5：AI 在 /聊聊 语境生成状态回放（"聊了 X 分钟。回到 Y"）但漏调 end_wish_clearing → 客户端 fallback 清 session
+        let trimmedFinal = finalText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedFinal.isEmpty,
+           trimmedFinal.contains("聊了"),
+           trimmedFinal.contains("回到") {
+            await MainActor.run {
+                AppState.shared.endWishClearingSession()
             }
         }
 
@@ -272,29 +327,39 @@ public final class ChatEngine: @unchecked Sendable {
         let state = AppState.shared
         var lines: [String] = ["## 当前状态"]
 
-        // 活跃计时
-        if let active = state.activeTask, active.status == .inProgress {
-            let remaining = active.remainingSeconds.map { "\($0 / 60):\(String(format: "%02d", $0 % 60))" } ?? "?"
-            lines.append("- 活跃计时: \(active.title) (剩余 \(remaining))")
+        // 今日焦点 (pinned)：只列仍需行动的（进行中 + 待办）。已完成任务单独汇总到底部，
+        // 避免 AI 把 ✓ 任务当成"你本来该做但没做"来提醒用户。
+        let pendingTasks = state.tasks.filter { $0.status == .pending }
+        let inProgressTasks = state.tasks.filter { $0.status == .inProgress }
+        let doneTasks = state.tasks.filter { $0.status == .done }
+        let actionableTasks = inProgressTasks + pendingTasks
+        if !actionableTasks.isEmpty {
+            lines.append("- 今日焦点 (pinned) 还需行动 \(actionableTasks.count) 条：")
+            for task in actionableTasks {
+                switch task.status {
+                case .inProgress:
+                    let remaining = task.remainingSeconds.map { "\($0 / 60):\(String(format: "%02d", $0 % 60))" } ?? "?"
+                    lines.append("  ▶ \(task.title) (进行中 · 剩 \(remaining))")
+                case .pending:
+                    lines.append("  ○ \(task.title) (待办)")
+                default: break
+                }
+            }
+        } else if doneTasks.isEmpty {
+            lines.append("- 今日焦点 (pinned)：今日未锁定焦点任务（早晨仪式尚未完成）")
+        } else {
+            lines.append("- 今日焦点 (pinned)：今日任务全部完成，无需再提醒去做")
         }
 
-        // 待办任务
-        let pending = state.tasks.filter { $0.status == .pending }
-        if !pending.isEmpty {
-            let names = pending.prefix(5).map { $0.title }.joined(separator: " / ")
-            lines.append("- 待办任务(\(pending.count)): \(names)")
-        }
-
-        // 今日已完成
-        let done = state.tasks.filter { $0.status == .done }
-        if !done.isEmpty {
-            lines.append("- 今日已完成: \(done.count) 个")
-        }
-
-        // 未处理随手记
-        let noteCount = state.unreadNoteCount
-        if noteCount > 0 {
-            lines.append("- 未处理随手记: \(noteCount) 条")
+        // 未处理随手记（按 kind 拆分：note / wish）
+        let pendingNotes = state.notes.filter { $0.status == .pending }
+        let pendingNoteCount = pendingNotes.filter { $0.kind == .note }.count
+        let pendingWishCount = pendingNotes.filter { $0.kind == .wish }.count
+        if pendingNoteCount > 0 || pendingWishCount > 0 {
+            var parts: [String] = []
+            if pendingNoteCount > 0 { parts.append("\(pendingNoteCount) 条随手记") }
+            if pendingWishCount > 0 { parts.append("\(pendingWishCount) 条我想") }
+            lines.append("- 未处理收件箱: \(parts.joined(separator: " + "))")
         }
 
         // 定时任务
@@ -304,8 +369,50 @@ public final class ChatEngine: @unchecked Sendable {
             lines.append("- 定时提醒(\(enabledTimers.count)): \(names)")
         }
 
+        // Wish Clearing 会话状态
+        if let session = state.wishClearingSession {
+            let elapsedMin = session.elapsedSeconds / 60
+            let remainingMin = session.remainingSeconds / 60
+            var sessionLine = "- Wish Clearing 进行中: 已过 \(elapsedMin) 分钟，剩余 \(remainingMin) 分钟，已处理 \(session.processedCount) 条"
+            if session.expired {
+                sessionLine += "（⚠️ 时间已到，请按协议结束并做状态回放）"
+            }
+            lines.append(sessionLine)
+            if let anchor = session.anchorTask, !anchor.isEmpty {
+                lines.append("- 进入前锚点: \(anchor)")
+            }
+        }
+
+        // 偏离信号：近 5 条 user 消息的主题是否和 pinned 焦点有关联。用 2-char shingle 做粗略关键词匹配。
+        if !pendingTasks.isEmpty || !inProgressTasks.isEmpty {
+            let recentUserMessages = state.messages
+                .filter { $0.role == .user && !$0.hidden }
+                .suffix(5)
+            if recentUserMessages.count >= 3 {
+                var shingles: Set<String> = []
+                for task in pendingTasks + inProgressTasks {
+                    let chars = Array(task.title)
+                    guard chars.count >= 2 else { continue }
+                    for i in 0...(chars.count - 2) {
+                        shingles.insert(String(chars[i...i+1]))
+                    }
+                }
+                let combinedRecent = recentUserMessages.map { $0.content }.joined(separator: " ")
+                let hasMatch = shingles.contains { !$0.isEmpty && combinedRecent.contains($0) }
+                if !hasMatch {
+                    let anchor = inProgressTasks.first?.title ?? pendingTasks.first?.title ?? "焦点任务"
+                    lines.append("- ⚠️ 近 \(recentUserMessages.count) 条消息主题与 pinned 焦点无关联 → 可能在偏离。若再 >3 轮无关，请主动问一句\u{0022}要不要先回到 [\(anchor)]？\u{0022}")
+                }
+            }
+        }
+
+        // 已完成汇总（放底，避免干扰 pinned 决策视野）
+        if !doneTasks.isEmpty {
+            lines.append("- 今日已完成: \(doneTasks.count) 个")
+        }
+
         lines.append("")
-        lines.append("你可以调用 get_tasks / get_inbox_notes / get_today_daily_note / get_scheduled_tasks 获取详细信息。")
+        lines.append("你可以调用 get_tasks / get_inbox_notes / get_today_daily_note / get_scheduled_tasks / memory_search 获取详细信息。")
 
         return lines.count > 3 ? lines.joined(separator: "\n") : ""
     }

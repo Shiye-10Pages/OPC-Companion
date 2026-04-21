@@ -22,7 +22,10 @@ public final class MemoryService: @unchecked Sendable {
 
     public static let memoryCharBudget = 3000
     public static let userCharBudget = 1500
-    public static let dailyLoadCharBudget = 2000
+    public static let dailyLoadCharBudget = 2000      // 单日总预算（昨日兼容）
+    public static let dailyPerDayBudget = 900         // 近几天每天的字符预算
+    public static let weeklyCharBudget = 1500
+    public static let daysToInject = 3                // 近 N 天 daily note（含今天 so far）
 
     private let lock = NSLock()
     private let rootURL: URL
@@ -60,33 +63,65 @@ public final class MemoryService: @unchecked Sendable {
         return (try? String(contentsOf: urlForDaily(date), encoding: .utf8)) ?? ""
     }
 
-    /// 会话启动时拼接的 frozen snapshot：MEMORY.md + USER.md + 昨日 daily note。
-    /// 按"昨日日期 key"缓存一次，避免每条消息都打 3 次文件 I/O；写接口会失效缓存。
+    /// 会话启动时拼接的 frozen snapshot：MEMORY.md + USER.md + 近 N 天 daily + 最近一期 weekly。
+    /// 按"今日日期 key"缓存一次，避免每条消息都打多次文件 I/O；写接口会失效缓存。
     public func composeSnapshot(now: Date = Date()) -> String {
         lock.lock()
         defer { lock.unlock() }
 
-        let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: now) ?? now
-        let yesterdayKey = yyyyMMdd(yesterday)
+        let todayKey = yyyyMMdd(now)
 
-        if let cached = cachedSnapshot, cachedSnapshotYesterdayKey == yesterdayKey {
+        if let cached = cachedSnapshot, cachedSnapshotYesterdayKey == todayKey {
             return cached
         }
 
         // 在同一个 lock 内完成所有读取，避免 read-after-unlock 脏读
         let memory = truncated(readFileLocked("MEMORY.md"), limit: Self.memoryCharBudget)
         let user = truncated(readFileLocked("USER.md"), limit: Self.userCharBudget)
-        let yesterdayNote = truncated(readFileLocked(urlForDaily(yesterday)), limit: Self.dailyLoadCharBudget)
+
+        // 近 N 天 daily note（含今天 so far），倒序（今天 → 昨天 → 前天 ...）
+        var dailyChunks: [String] = []
+        for offset in 0..<Self.daysToInject {
+            guard let date = Calendar.current.date(byAdding: .day, value: -offset, to: now) else { continue }
+            let content = truncated(readFileLocked(urlForDaily(date)), limit: Self.dailyPerDayBudget)
+            if content.isEmpty { continue }
+            let label: String
+            switch offset {
+            case 0: label = "今日 so far"
+            case 1: label = "昨日"
+            default: label = "\(offset) 天前"
+            }
+            dailyChunks.append("### \(label)（\(yyyyMMdd(date))）\n\(content)")
+        }
+
+        // 最近一期 weekly（如果存在）
+        let weeklyContent = latestWeeklyContentLocked()
+        let weekly = truncated(weeklyContent, limit: Self.weeklyCharBudget)
 
         var sections: [String] = []
         if !memory.isEmpty { sections.append("## 长期记忆\n\(memory)") }
         if !user.isEmpty { sections.append("## 用户画像\n\(user)") }
-        if !yesterdayNote.isEmpty { sections.append("## 昨日要点（\(yesterdayKey)）\n\(yesterdayNote)") }
+        if !dailyChunks.isEmpty { sections.append("## 近 \(Self.daysToInject) 天要点\n\(dailyChunks.joined(separator: "\n\n"))") }
+        if !weekly.isEmpty { sections.append("## 最近周报\n\(weekly)") }
         let result = sections.joined(separator: "\n\n")
 
         cachedSnapshot = result
-        cachedSnapshotYesterdayKey = yesterdayKey
+        cachedSnapshotYesterdayKey = todayKey
         return result
+    }
+
+    /// 读 ~/.opc-companion/memory/weekly/ 下最新的一期 weekly。lock 内调用。
+    private func latestWeeklyContentLocked() -> String {
+        let weeklyDir = rootURL.appendingPathComponent("weekly")
+        guard let files = try? FileManager.default.contentsOfDirectory(at: weeklyDir, includingPropertiesForKeys: nil) else {
+            return ""
+        }
+        let latest = files
+            .filter { $0.pathExtension == "md" }
+            .sorted { $0.lastPathComponent > $1.lastPathComponent }
+            .first
+        guard let url = latest else { return "" }
+        return (try? String(contentsOf: url, encoding: .utf8)) ?? ""
     }
 
     /// lock 内直接读文件（不重复加锁）

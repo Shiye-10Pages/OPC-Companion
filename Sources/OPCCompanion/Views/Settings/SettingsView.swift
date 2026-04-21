@@ -49,37 +49,6 @@ struct SettingsView: View {
 
                 Divider()
 
-                // 定时任务
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack {
-                        Text("定时任务")
-                            .font(.headline)
-                        Spacer()
-                        Button {
-                            state.editingScheduledTask = nil
-                            state.showScheduledTaskForm = true
-                        } label: {
-                            Image(systemName: "plus")
-                        }
-                        .buttonStyle(.bordered)
-                    }
-
-                    if state.scheduledTasks.isEmpty {
-                        Text("暂无定时任务")
-                            .foregroundColor(.secondary)
-                            .font(.subheadline)
-                    } else {
-                        ForEach(state.scheduledTasks) { task in
-                            ScheduledTaskRow(task: task) {
-                                state.editingScheduledTask = task
-                                state.showScheduledTaskForm = true
-                            }
-                        }
-                    }
-                }
-
-                Divider()
-
                 // 语音选择
                 VStack(alignment: .leading, spacing: 12) {
                     Text("语音合成")
@@ -417,7 +386,7 @@ struct ScheduledTaskRow: View {
     let onEdit: () -> Void
 
     var body: some View {
-        HStack {
+        HStack(spacing: 8) {
             Button(action: onEdit) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(task.name)
@@ -442,8 +411,22 @@ struct ScheduledTaskRow: View {
                 }
             ))
             .labelsHidden()
+
+            Button(action: deleteTask) {
+                Image(systemName: "trash")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("删除定时任务")
         }
         .padding(.vertical, 4)
+    }
+
+    private func deleteTask() {
+        state.scheduledTasks.removeAll { $0.id == task.id }
+        state.saveScheduledTasks()
+        state.showBanner("已删除：\(task.name)", kind: .info)
     }
 
     private func scheduleDescription(_ schedule: TaskSchedule) -> String {

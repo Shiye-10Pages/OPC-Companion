@@ -6,15 +6,18 @@ struct SlashCommand: Identifiable {
     let icon: String
     let label: String
     let description: String
-    /// 执行命令；返回 true = 清空输入框，false = 保留（如随手记前缀）
+    /// 选中后把输入框替换为此字符串（nil = 保持原样让用户继续输入，如随手记）
+    let replacement: String?
+    /// 执行命令；返回 true = 清空输入框，false = 保留
     let execute: (AppState) -> Bool
 
     @MainActor static let all: [SlashCommand] = [
-        SlashCommand(id: "note", icon: "tray.and.arrow.down", label: "随手记", description: "/ 后跟内容直接存入收件箱") { _ in false },
-        SlashCommand(id: "ritual", icon: "sunrise.fill", label: "今日必做", description: "锁定今天要完成的 3 件事") { state in
+        SlashCommand(id: "note", icon: "tray.and.arrow.down", label: "随手记", description: "/ 后跟内容直接存入收件箱", replacement: "/ ") { _ in false },
+        SlashCommand(id: "chat", icon: "bubble.left.and.text.bubble.right", label: "聊聊", description: "进入我想清扫模式（限时 10 分钟）", replacement: "/聊聊 ") { _ in false },
+        SlashCommand(id: "ritual", icon: "sunrise.fill", label: "今日必做", description: "锁定今天要完成的 3 件事", replacement: nil) { state in
             state.showMorningRitual = true; return true
         },
-        SlashCommand(id: "learn", icon: "brain.filled.head.profile", label: "学习", description: "审核近期的 [LEARN] 候选") { state in
+        SlashCommand(id: "learn", icon: "brain.filled.head.profile", label: "学习", description: "审核近期的 [LEARN] 候选", replacement: nil) { state in
             state.triggerDreamingIfNeeded(); return true
         },
     ]

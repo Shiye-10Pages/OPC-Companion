@@ -7,40 +7,115 @@ struct StatusBar: View {
     let activeTimerTitle: String?  // 进行中计时任务的标题，取代图标 badge 时显示
 
     var body: some View {
-        HStack(spacing: 10) {
-            Text(dateTitle)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.secondary)
+        // TimelineView 每秒刷新活跃计时剩余；wishSession 剩余也靠它
+        TimelineView(.periodic(from: .now, by: 1.0)) { _ in
+            HStack(spacing: 10) {
+                Text(dateTitle)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
 
-            Spacer(minLength: 4)
+                if let active = activeTimer {
+                    statusDivider
+                    activeBadge(active)
+                }
 
-            StatusBarIcon(
-                tab: .tasks,
-                systemImage: AppTab.tasks.icon,
-                badgeCount: activeTaskCount,
-                isActive: state.selectedTab == .tasks,
-                action: { toggle(.tasks) }
-            )
-            StatusBarIcon(
-                tab: .inbox,
-                systemImage: AppTab.inbox.icon,
-                badgeCount: state.unreadNoteCount,
-                isActive: state.selectedTab == .inbox,
-                action: { toggle(.inbox) }
-            )
-            StatusBarIcon(
-                tab: .history,
-                systemImage: AppTab.history.icon,
-                badgeCount: 0,
-                isActive: state.selectedTab == .history,
-                action: { toggle(.history) }
-            )
-            // 设置图标已移除；输入框敲 /设置 召唤
+                if let sess = state.wishClearingSession, !sess.expired {
+                    statusDivider
+                    wishBadge(sess)
+                }
+
+                Spacer(minLength: 4)
+
+                StatusBarIcon(
+                    tab: .tasks,
+                    systemImage: AppTab.tasks.icon,
+                    badgeCount: activeTaskCount,
+                    isActive: state.selectedTab == .tasks,
+                    action: { toggle(.tasks) }
+                )
+                StatusBarIcon(
+                    tab: .inbox,
+                    systemImage: AppTab.inbox.icon,
+                    badgeCount: state.unreadNoteCount,
+                    isActive: state.selectedTab == .inbox,
+                    action: { toggle(.inbox) }
+                )
+                StatusBarIcon(
+                    tab: .history,
+                    systemImage: AppTab.history.icon,
+                    badgeCount: 0,
+                    isActive: state.selectedTab == .history,
+                    action: { toggle(.history) }
+                )
+                // 设置图标已移除；输入框敲 /设置 召唤
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(.ultraThinMaterial)
+            .overlay(Divider().opacity(0.5), alignment: .bottom)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(.ultraThinMaterial)
-        .overlay(Divider().opacity(0.5), alignment: .bottom)
+    }
+
+    private var statusDivider: some View {
+        Rectangle()
+            .fill(Color.secondary.opacity(0.3))
+            .frame(width: 1, height: 10)
+    }
+
+    @ViewBuilder
+    private func activeBadge(_ task: TaskItem) -> some View {
+        let remaining = task.remainingSeconds ?? 0
+        HStack(spacing: 4) {
+            Image(systemName: "play.circle.fill")
+                .font(.system(size: 11))
+                .foregroundStyle(AppColors.taskInProgress)
+            Text(task.title)
+                .font(.system(size: 12, weight: .medium))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: 140, alignment: .leading)
+            Text(formatRemaining(remaining))
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .foregroundStyle(remaining < 300 ? AppColors.statusError : .secondary)
+        }
+    }
+
+    @ViewBuilder
+    private func wishBadge(_ session: WishClearingSession) -> some View {
+        let remainingMin = session.remainingSeconds / 60
+        Button {
+            state.endWishClearingSession()
+            state.showBanner("已结束我想清扫", kind: .success, duration: 2.0)
+        } label: {
+            HStack(spacing: 3) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 10))
+                Text("我想清扫 · 剩 \(remainingMin) 分")
+                    .font(.system(size: 11, weight: .medium))
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 10))
+                    .opacity(0.6)
+            }
+            .foregroundStyle(.purple)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(
+                Capsule().fill(Color.purple.opacity(0.12))
+            )
+        }
+        .buttonStyle(.plain)
+        .help("点击结束我想清扫")
+    }
+
+    private func formatRemaining(_ seconds: Int) -> String {
+        let m = max(0, seconds) / 60
+        let s = max(0, seconds) % 60
+        return String(format: "%02d:%02d", m, s)
+    }
+
+    private var activeTimer: TaskItem? {
+        guard let t = state.activeTask, t.status == .inProgress else { return nil }
+        return t
     }
 
     private var dateTitle: String {

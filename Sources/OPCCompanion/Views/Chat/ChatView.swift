@@ -65,11 +65,17 @@ struct ChatView: View {
                         }
                         .scrollIndicators(.automatic)
                         .onChange(of: state.messages.count) { _, _ in
-                            // 只在用户本来就在底部时自动跟随；不在底部则不打扰正在阅读的人
+                            // 新消息进入 → 动画滚动到底
                             if isNearBottom {
                                 withAnimation {
                                     proxy.scrollTo(Self.bottomAnchorId, anchor: .bottom)
                                 }
+                            }
+                        }
+                        .onChange(of: state.messages.last?.content ?? "") { _, _ in
+                            // 流式 delta 会不断追加最后一条消息的 content（count 不变），这里补跟随
+                            if isNearBottom {
+                                proxy.scrollTo(Self.bottomAnchorId, anchor: .bottom)
                             }
                         }
 
@@ -202,24 +208,35 @@ struct ChatView: View {
             VoiceService.shared.stopRecording()
         }
 
-        // `/` 前缀：先尝试命令（打开 popover），否则当随手记
+        // `/` 前缀：先看是不是 /聊聊（发给 AI）；再试命令（打开 popover），否则当随手记
         if rawInput.hasPrefix("/") {
             let body = String(rawInput.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
-            inputText = ""
-            isInputFocused = true
-            guard !body.isEmpty else { return }
+            let isWishChat = body == "聊聊" || body.hasPrefix("聊聊 ") || body.hasPrefix("聊聊\t")
 
-            // 命令识别：单关键字（中英文均可）
-            let lower = body.lowercased()
-            if Self.handleCommand(lower, state: state) {
+            if isWishChat {
+                // 启动 wish clearing session（已存在则不重置），然后 fall through 到 AI 路径发送原始消息
+                if state.wishClearingSession == nil {
+                    let anchor = state.activeTask?.title ?? state.tasks.first(where: { $0.status == .pending })?.title
+                    state.startWishClearingSession(anchorTask: anchor)
+                }
+                // 不 return，继续走下方 AI 发送路径
+            } else {
+                inputText = ""
+                isInputFocused = true
+                guard !body.isEmpty else { return }
+
+                // 命令识别：单关键字（中英文均可）
+                let lower = body.lowercased()
+                if Self.handleCommand(lower, state: state) {
+                    return
+                }
+
+                // 非命令 → 落到随手记
+                state.captureNote(content: body, source: .slashInPanel, inputMode: inputMode)
+                state.showBanner("已存随手记", kind: .success)
+                MemoryService.shared.appendToToday(.notes, entry: body)
                 return
             }
-
-            // 非命令 → 落到随手记
-            state.captureNote(content: body, source: .slashInPanel, inputMode: inputMode)
-            state.showBanner("已存随手记", kind: .success)
-            MemoryService.shared.appendToToday(.notes, entry: body)
-            return
         }
 
         let userMessage = inputText
@@ -239,8 +256,16 @@ struct ChatView: View {
         state.appendMessage(placeholder)
         let msgID = placeholder.id
 
-        Task {
-            state.isLoading = true
+        // C1：guard 后**立即同步**设 true，避免与后续 Task 调度之间的并发窗口
+        state.isLoading = true
+
+        Task { @MainActor in
+            // defer 兜底：无论 success / throw / cancel 都正确归位 isLoading + 持久化
+            // 若 /聊聊 路径异常，这里也会把 wish session 清掉，防止 session 残留污染后续对话
+            defer {
+                state.persistMessage(id: msgID)
+                state.isLoading = false
+            }
 
             do {
                 let systemPrompt = state.systemPrompt
@@ -256,9 +281,9 @@ struct ChatView: View {
                     }
                 )
 
-                // 确保最终内容与返回文本一致（防止最后一帧丢失）
+                // M7：取流式累积 vs response 里更长的那个，避免多轮 tool 调用时被覆盖丢前几轮
                 if let idx = state.messages.firstIndex(where: { $0.id == msgID }),
-                   state.messages[idx].content != response {
+                   state.messages[idx].content.count < response.count {
                     state.messages[idx].content = response
                 }
 
@@ -278,9 +303,14 @@ struct ChatView: View {
                     }
                 }
                 state.showBanner("消息发送失败：\(error.localizedDescription)", kind: .error, duration: 5.0)
+                // Batch 1.6：/聊聊 catch 分支同步回滚 wish session，避免残留污染后续对话
+                if rawInput.hasPrefix("/") {
+                    let body = String(rawInput.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
+                    if body == "聊聊" || body.hasPrefix("聊聊 ") || body.hasPrefix("聊聊\t") {
+                        state.endWishClearingSession()
+                    }
+                }
             }
-
-            state.isLoading = false
         }
     }
 }
@@ -468,6 +498,8 @@ struct TaskCard: View {
         }
     }
 
+    private var isActive: Bool { task.status == .inProgress }
+
     var body: some View {
         HStack(spacing: 10) {
             // 状态指示器
@@ -482,18 +514,18 @@ struct TaskCard: View {
             // 任务信息
             VStack(alignment: .leading, spacing: 2) {
                 Text(task.title)
-                    .font(.system(size: 13))
+                    .font(.system(size: isActive ? 14 : 13, weight: isActive ? .semibold : .regular))
                     .strikethrough(task.status == .done)
                     .foregroundColor(task.status == .done ? .secondary : .primary)
 
-                if task.status == .inProgress, let remaining = task.remainingSeconds {
+                if isActive, let remaining = task.remainingSeconds {
                     HStack(spacing: 4) {
                         Image(systemName: "clock")
                             .font(.system(size: 11))
                         Text(formatTime(remaining))
                             .font(.system(size: 11, design: .monospaced))
                     }
-                    .foregroundColor(remaining < 300 ? .red : .secondary)
+                    .foregroundColor(remaining < 300 ? AppColors.statusError : .secondary)
                 }
             }
 
@@ -508,12 +540,21 @@ struct TaskCard: View {
         .padding(.vertical, 10)
         .background(
             RoundedRectangle(cornerRadius: AppCornerRadius.button)
-                .fill(AppColors.cardBackground)
+                .fill(isActive ? AppColors.taskInProgress.opacity(0.10) : AppColors.cardBackground)
         )
         .overlay(
             RoundedRectangle(cornerRadius: AppCornerRadius.button)
-                .stroke(AppColors.cardBorder, lineWidth: 1)
+                .stroke(isActive ? AppColors.taskInProgress.opacity(0.35) : AppColors.cardBorder, lineWidth: isActive ? 1.5 : 1)
         )
+        .overlay(alignment: .leading) {
+            // 进行中任务左侧 3px 彩条，让"眼下该做什么"一眼可见
+            if isActive {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(AppColors.taskInProgress)
+                    .frame(width: 3)
+                    .padding(.vertical, 4)
+            }
+        }
     }
 
     @ViewBuilder
@@ -705,6 +746,7 @@ struct MessageBubble: View {
                 // 气泡正文：思考中跳过，thinking-only 跳过，有 main 才渲染
                 if let displayText = bubbleDisplayText(parsed: parsed), !displayText.isEmpty {
                     MarkdownText(text: displayText)
+                    .font(.system(size: CGFloat(15) * state.fontScale))
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
                     .foregroundStyle(isUser ? .white : .primary)
@@ -891,6 +933,8 @@ struct InputBar: View {
     @FocusState private var isFocused: Bool
     @State private var micPulse = false
     @State private var slashSelectedIndex = 0
+    /// 选中一条命令后立即收起菜单；删空 "/" 再重新触发会自动恢复。
+    @State private var slashMenuCollapsed = false
 
     private var isNoteMode: Bool {
         text.hasPrefix("/")
@@ -908,7 +952,7 @@ struct InputBar: View {
     }
 
     private var showSlashMenu: Bool {
-        text.hasPrefix("/") && !slashCommands.isEmpty
+        !slashMenuCollapsed && text.hasPrefix("/") && !slashCommands.isEmpty
     }
 
     private var borderColor: Color {
@@ -935,7 +979,7 @@ struct InputBar: View {
                     TextField(isNoteMode ? "记一下..." : "发送消息（/ 开头存为随手记）", text: $text)
                         .textFieldStyle(.plain)
                         .focused($isFocused)
-                        .font(AppTypography.body)
+                        .font(.system(size: CGFloat(15) * state.fontScale))
                         .onSubmit {
                             if showSlashMenu {
                                 let idx = min(slashSelectedIndex, slashCommands.count - 1)
@@ -954,8 +998,12 @@ struct InputBar: View {
                                 text = newValue
                             }
                         }
-                        .onChange(of: text) { _, _ in
+                        .onChange(of: text) { _, newValue in
                             slashSelectedIndex = 0
+                            // 删空或改成非 "/" 开头 → 允许菜单重新展开
+                            if !newValue.hasPrefix("/") {
+                                slashMenuCollapsed = false
+                            }
                         }
                         .onKeyPress(.upArrow) {
                             guard showSlashMenu else { return .ignored }
@@ -1052,8 +1100,11 @@ struct InputBar: View {
         let shouldClear = cmd.execute(state)
         if shouldClear {
             text = ""
+        } else if let rep = cmd.replacement {
+            text = rep
         }
-        // "随手记" 命令不清空：保留 "/" 让用户继续输入内容
+        // 选中即收起菜单。text 回到非 "/" 开头时（比如清空）会在 onChange 里复位。
+        slashMenuCollapsed = true
     }
 
     private func toggleRecording() {

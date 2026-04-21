@@ -242,6 +242,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         popover = newPopover
         dlog("[DIAG] Popover created fresh")
 
+        // 显示前先激活 app，否则 popover 弹出时是非 key 状态（灰色/失焦），要用户再点一次才"点亮"
+        NSApplication.shared.activate(ignoringOtherApps: true)
+
         // 显示
         if let button = statusItem?.button {
             popover?.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
@@ -337,14 +340,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         )
         dlog("[DIAG] Carbon hotkeys registered")
 
-        // Local monitor 保留：Esc 关面板 / Cmd+D 关面板（只在 app 内生效）
+        // Local monitor 保留：Esc 关面板 / Cmd+D 关面板 / Cmd+=/-/0 微调字号（只在 app 内生效）
         localHotkeyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { event in
-            if event.keyCode == 2 && event.modifierFlags.contains(.command) {
-                dlog("[LOCAL-HOTKEY] Cmd+D detected - closing panel!")
-                DispatchQueue.main.async { AppDelegate.shared?.hidePanel() }
-                return nil
+            if event.modifierFlags.contains(.command) {
+                // Cmd+D 关面板
+                if event.keyCode == 2 {
+                    dlog("[LOCAL-HOTKEY] Cmd+D detected - closing panel!")
+                    DispatchQueue.main.async { AppDelegate.shared?.hidePanel() }
+                    return nil
+                }
+                // Cmd+= / Cmd++ / Cmd+- / Cmd+0 字号微调（气泡 + 输入框 + 面板）
+                switch event.charactersIgnoringModifiers {
+                case "=", "+":
+                    DispatchQueue.main.async { AppState.shared.adjustFontScale(0.1) }
+                    return nil
+                case "-":
+                    DispatchQueue.main.async { AppState.shared.adjustFontScale(-0.1) }
+                    return nil
+                case "0":
+                    DispatchQueue.main.async { AppState.shared.resetFontScale() }
+                    return nil
+                default:
+                    break
+                }
             }
             if event.keyCode == 53 {
+                // 中文 IME 组合输入期间，Esc 是取消候选词，不能被拦截关面板
+                if let tv = NSApp.keyWindow?.firstResponder as? NSTextView, tv.hasMarkedText() {
+                    return event
+                }
                 if AppDelegate.shared?.quickCapturePanel?.isVisible == true {
                     dlog("[LOCAL-HOTKEY] Escape - closing quick capture!")
                     DispatchQueue.main.async { AppDelegate.shared?.hideQuickCapture() }
@@ -610,12 +634,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             state.isPanelVisible = false
             dlog("[ACTION] Panel hidden")
         }
-        // 关 panel 时清理可能挂起的资源：录音 + Notion 确认 continuation
+        // 关 panel 时清理可能挂起的资源：录音 + Notion 确认 continuation + 浮层
         if VoiceService.shared.isRecording {
             VoiceService.shared.stopRecording()
         }
         if NotionConfirmManager.shared.showConfirmation {
             NotionConfirmManager.shared.cancel()
+        }
+        // 关闭面板时同步收起"进展 ping"浮层，避免下次打开时残留出现
+        state.showProgressPingPanel = false
+
+        // H4：若 /聊聊 session 已进行 ≥3 分钟还关面板，视为用户结束清扫，避免 session 持续污染后续对话
+        if let session = state.wishClearingSession, session.elapsedSeconds >= 180 {
+            state.endWishClearingSession()
         }
     }
 
@@ -654,6 +685,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         p.alphaValue = 1.0
         p.makeKeyAndOrderFront(nil)
         state.isPanelVisible = true
+
+        // 打开面板 = 用户主动回到 OPC，重置静默计时
+        state.markActivity()
 
         // 打开面板时：每日首次检查早晨仪式（Dreaming 审核改为仪式完成后衔接 + /学习 按需召唤）
         state.checkMorningRitual()
@@ -707,6 +741,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             DispatchQueue.main.async {
                 p.orderOut(nil)
                 p.alphaValue = 1.0
+                // 若主面板没开着，则是"闪电捕获完就走"场景 → 把 OPC 退回后台，焦点自然归还前台 app（IDE/浏览器等）
+                if AppDelegate.shared?.panel?.isVisible != true {
+                    NSApp.hide(nil)
+                }
             }
         })
     }
@@ -739,9 +777,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         let view = QuickCaptureView(
             autoStartVoice: true,
-            onSubmit: { [weak self] text, inputMode in
+            onSubmit: { [weak self] text, inputMode, kind in
                 let source: Note.Source = (inputMode == .voice) ? .hotkeyVoice : .hotkeyText
-                AppState.shared.captureNote(content: text, source: source, inputMode: inputMode)
+                AppState.shared.captureNote(content: text, source: source, inputMode: inputMode, kind: kind)
                 self?.hideQuickCapture()
             },
             onCancel: { [weak self] in

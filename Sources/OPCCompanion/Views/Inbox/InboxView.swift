@@ -160,14 +160,20 @@ struct InboxView: View {
     }
 
     private func batchDelete() {
-        for id in selectedNoteIds {
-            if let note = state.notes.first(where: { $0.id == id }) {
-                state.deleteNote(note)
-            }
+        let ids = selectedNoteIds
+        guard !ids.isEmpty else { return }
+        // ≥3 条时原生 NSAlert 二次确认；<3 条跳过确认直接删（删多了有 banner 撤销兜底）
+        if ids.count >= 3 {
+            let alert = NSAlert()
+            alert.messageText = "删除 \(ids.count) 条随手记？"
+            alert.informativeText = "5 秒内可从顶部 banner 撤销"
+            alert.addButton(withTitle: "删除")
+            alert.addButton(withTitle: "取消")
+            alert.alertStyle = .warning
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
         }
-        let count = selectedNoteIds.count
+        state.batchDeleteNotesWithUndo(ids: ids)
         selectedNoteIds.removeAll()
-        state.showBanner("已删除 \(count) 条", kind: .info)
     }
 
     @ViewBuilder
@@ -277,12 +283,29 @@ struct NoteCard: View {
             }
 
             VStack(alignment: .leading, spacing: 10) {
-                Text(note.content)
-                    .font(.system(size: 13))
-                    .strikethrough(note.status == .done || note.status == .expired)
-                    .foregroundColor(note.status == .pending ? .primary : .secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                HStack(alignment: .top, spacing: 6) {
+                    if note.kind == .wish {
+                        HStack(spacing: 3) {
+                            Image(systemName: "sparkles")
+                                .font(.system(size: 10, weight: .semibold))
+                            Text("我想")
+                                .font(.system(size: 10, weight: .semibold))
+                        }
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(
+                            Capsule()
+                                .fill(Color.purple.opacity(0.15))
+                        )
+                        .foregroundColor(.purple)
+                    }
+                    Text(note.content)
+                        .font(.system(size: 13))
+                        .strikethrough(note.status == .done || note.status == .expired)
+                        .foregroundColor(note.status == .pending ? .primary : .secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
 
                 HStack(spacing: 6) {
                     Text(formatTime(note.capturedAt))
@@ -314,6 +337,7 @@ struct NoteCard: View {
         switch note.status {
         case .pending:
             HStack(spacing: 2) {
+                HoverIconButton(systemImage: "bubble.left.and.text.bubble.right", help: "聊聊这条（进入我想清扫）") { chatAboutNote() }
                 HoverIconButton(systemImage: "checkmark.circle", help: "标记完成") { state.markNoteDone(note) }
                 HoverIconButton(systemImage: "arrow.right.circle", help: "转任务") { state.convertNoteToTask(note) }
                 HoverIconButton(label: "Notion", help: "推送到 Notion") { pushNotion() }
@@ -321,6 +345,7 @@ struct NoteCard: View {
             }
         case .expired:
             HStack(spacing: 2) {
+                HoverIconButton(systemImage: "bubble.left.and.text.bubble.right", help: "聊聊这条（进入我想清扫）") { chatAboutNote() }
                 HoverIconButton(systemImage: "arrow.right.circle", help: "转任务") { state.convertNoteToTask(note) }
                 HoverIconButton(systemImage: "trash", help: "删除") { state.deleteNote(note) }
             }
@@ -339,5 +364,9 @@ struct NoteCard: View {
 
     private func pushNotion() {
         Task { await state.pushNoteToNotion(note) }
+    }
+
+    private func chatAboutNote() {
+        state.dispatchWishChat(noteId: note.id)
     }
 }

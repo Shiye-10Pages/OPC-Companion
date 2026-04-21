@@ -52,10 +52,19 @@ public final class SessionArchiveService {
     }
 
     private func performArchive(state: AppState, archiveKey: String, archiveDate: Date) async {
-        // 归档源：优先 in-memory（app 跨夜开着），回退到 jsonl（重启场景）
+        // C2：流式中跳过归档，避免把正在追加 delta 的 assistant 气泡当作昨日归档删掉
+        if state.isLoading {
+            return
+        }
+
+        // C3：in-memory 归档源必须按 archiveDate 过滤（仅保留 timestamp 属于目标日的消息），
+        // 防止 lastSessionDate 异常场景下把今日消息当昨日归档后又从 UI 清掉
         let archiveMessages: [Message]
         if !state.messages.isEmpty {
-            archiveMessages = state.messages.filter { $0.role != .system && !$0.hidden }
+            archiveMessages = state.messages.filter { msg in
+                guard msg.role != .system && !msg.hidden else { return false }
+                return Self.dayKey(msg.timestamp) == archiveKey
+            }
         } else {
             archiveMessages = Self.loadMessagesForDate(archiveKey)
         }
@@ -72,6 +81,13 @@ public final class SessionArchiveService {
         let trimmed = summary.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty {
             MemoryService.shared.appendToToday(.conversation, entry: trimmed, now: archiveDate)
+        } else {
+            // N12：摘要生成失败时写一条标记，避免 daily note 静默缺失"对话主线"让用户困惑
+            MemoryService.shared.appendToToday(
+                .conversation,
+                entry: "⚠ 昨日归档摘要生成失败（查看应用日志或重试）",
+                now: archiveDate
+            )
         }
 
         // 只移除 snapshot 里的消息，保留 AI 调用期间用户新加的
@@ -80,13 +96,22 @@ public final class SessionArchiveService {
     }
 
     private func generateArchiveSummary(messages: [Message]) async -> String {
+        // 剥离 assistant 消息里的 <think> 段，避免思考过程污染 daily note 归档
         let snippet = messages
             .suffix(40)
-            .map { "[\($0.role.rawValue)] \($0.content)" }
+            .map { msg -> String in
+                var content = msg.content
+                if msg.role == .assistant {
+                    let parsed = ThinkingParser.parse(msg.content)
+                    content = parsed.main.isEmpty ? msg.content : parsed.main
+                    content = ThinkingParser.stripLegacyActionTags(content)
+                }
+                return "[\(msg.role.rawValue)] \(content)"
+            }
             .joined(separator: "\n")
 
         let prompt = """
-        以下是用户一天与你的对话片段。请生成 100 字以内的中文总结，记录：主要话题、关键决策、未解决的问题。用第三人称，只输出总结文本，不要加任何前后缀或标题。
+        以下是用户一天与你的对话片段。请生成 100 字以内的中文总结，记录：主要话题、关键决策、未解决的问题。用第三人称，只输出总结文本，不要加任何前后缀或标题；**禁止输出任何 <think> 标签或你的思考过程**。
 
         ---
         \(snippet)

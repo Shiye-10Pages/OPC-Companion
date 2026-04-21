@@ -36,13 +36,54 @@ public enum ToolExecutor {
             "type": "function",
             "function": [
                 "name": "extend_timer",
-                "description": "延长当前计时任务。",
+                "description": "调整当前计时任务的剩余时间。分钟数正数为延长、负数为缩短（例 -5 = 缩短 5 分钟）。",
                 "parameters": [
                     "type": "object",
                     "properties": [
-                        "minutes": ["type": "integer", "description": "延长的分钟数，1-120"]
+                        "minutes": ["type": "integer", "description": "正数延长 / 负数缩短，范围 -60 至 120，非 0"]
                     ],
                     "required": ["minutes"]
+                ]
+            ]
+        ],
+        [
+            "type": "function",
+            "function": [
+                "name": "cancel_timer",
+                "description": "取消当前活跃计时（任务置 cancelled，释放 activeTask）。用户明确说'算了不做了'、'取消当前任务'时调用。",
+                "parameters": [
+                    "type": "object",
+                    "properties": [
+                        "reason": ["type": "string", "description": "可选：一句话解释取消原因"]
+                    ]
+                ]
+            ]
+        ],
+        [
+            "type": "function",
+            "function": [
+                "name": "mark_task_done",
+                "description": "按标题标记一条 pinned task 为已完成（不影响活跃计时，用于用户口头汇报'X 做完了'）。",
+                "parameters": [
+                    "type": "object",
+                    "properties": [
+                        "title": ["type": "string", "description": "任务标题的完整或包含文本"]
+                    ],
+                    "required": ["title"]
+                ]
+            ]
+        ],
+        [
+            "type": "function",
+            "function": [
+                "name": "delete_pinned_task",
+                "description": "按标题删除一条 pinned task（用户说'把 X 去掉'/'删了那条'时调用）。已完成的任务不会被删，需用 mark_task_done 反向。",
+                "parameters": [
+                    "type": "object",
+                    "properties": [
+                        "title": ["type": "string", "description": "任务标题的完整或包含文本"]
+                    ],
+                    "required": ["title"]
                 ]
             ]
         ],
@@ -163,6 +204,40 @@ public enum ToolExecutor {
                     "required": ["query"]
                 ]
             ]
+        ],
+        [
+            "type": "function",
+            "function": [
+                "name": "end_wish_clearing",
+                "description": "结束当前的 /聊聊 Wish Clearing 会话。在用户说'先到这'/'回去了'/'回工作'或你完成状态回放后必须调用。未调用会导致后续普通对话被 wish 上下文污染。",
+                "parameters": ["type": "object", "properties": [:]]
+            ]
+        ],
+        [
+            "type": "function",
+            "function": [
+                "name": "log_wish_decision",
+                "description": "在 /聊聊 Wish Clearing 模式里，**每当你和用户对一条 wish 做出决策后必须调用**。记录到今日 daily note 并执行副作用：升级为任务/立即做 会把 wish 升级成今日 pinned；删除 会直接删除；先留着 只留痕不改变数据。",
+                "parameters": [
+                    "type": "object",
+                    "properties": [
+                        "wish_content": [
+                            "type": "string",
+                            "description": "该条 wish 的完整原文或前 20 字（用于匹配本地 note）"
+                        ],
+                        "decision": [
+                            "type": "string",
+                            "enum": ["立即做", "升级为任务", "先留着", "删除"],
+                            "description": "立即做 / 升级为任务 = 把 wish 加进今日 pinned（不自动起计时，让用户手动开始）；先留着 = 保留 wish，只把讨论结果写入 daily note；删除 = 彻底删除这条 wish"
+                        ],
+                        "reason": [
+                            "type": "string",
+                            "description": "可选：一句话解释为什么这么决策（便于周报和回溯）"
+                        ]
+                    ],
+                    "required": ["wish_content", "decision"]
+                ]
+            ]
         ]
     ] }
 
@@ -183,6 +258,10 @@ public enum ToolExecutor {
                   let minutes = args["minutes"] as? Int, minutes > 0 else {
                 return errorResult("参数无效")
             }
+            // Guard：已有活跃计时时不静默 overwrite，返回 conflict 让 AI 主动询问用户
+            if let active = state.activeTask, active.status == .inProgress {
+                return errorResult("已有活跃计时 [\(active.title)]，请先 complete_timer / cancel_timer 再起新计时")
+            }
             state.startTimer(task: task, minutes: minutes)
             return successResult(["task": task, "minutes": minutes])
 
@@ -192,11 +271,37 @@ public enum ToolExecutor {
             return successResult([:])
 
         case "extend_timer":
-            guard let minutes = args["minutes"] as? Int, minutes > 0 else {
-                return errorResult("分钟数无效")
+            guard let minutes = args["minutes"] as? Int, minutes != 0 else {
+                return errorResult("分钟数不能为 0")
             }
             state.extendCurrentTimer(by: minutes)
             return successResult(["minutes": minutes])
+
+        case "cancel_timer":
+            guard state.activeTask != nil else {
+                return errorResult("当前没有活跃计时可取消")
+            }
+            let reason = args["reason"] as? String
+            state.cancelCurrentTimer(reason: reason)
+            return successResult(["cancelled": true])
+
+        case "mark_task_done":
+            guard let title = args["title"] as? String, !title.isEmpty else {
+                return errorResult("title 缺失")
+            }
+            if let done = state.markPinnedTaskDoneByTitle(title) {
+                return successResult(["matched": done.title])
+            }
+            return errorResult("未找到匹配的 pending 任务：\(title)")
+
+        case "delete_pinned_task":
+            guard let title = args["title"] as? String, !title.isEmpty else {
+                return errorResult("title 缺失")
+            }
+            if let removed = state.deletePinnedTaskByTitle(title) {
+                return successResult(["removed": removed.title])
+            }
+            return errorResult("未找到匹配任务：\(title)")
 
         case "add_pinned_task":
             guard let title = args["title"] as? String, !title.isEmpty else {
@@ -241,9 +346,55 @@ public enum ToolExecutor {
             }
             return executeMemorySearch(query: query)
 
+        case "end_wish_clearing":
+            let hadSession = state.wishClearingSession != nil
+            state.endWishClearingSession()
+            return successResult(["ended": hadSession])
+
+        case "log_wish_decision":
+            guard let content = (args["wish_content"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !content.isEmpty,
+                  let decisionRaw = (args["decision"] as? String) else {
+                return errorResult("wish_content 或 decision 缺失")
+            }
+            let decision = decisionRaw.trimmingCharacters(in: .whitespacesAndNewlines)
+            let reason = (args["reason"] as? String) ?? ""
+            return executeLogWishDecision(content: content, decision: decision, reason: reason, state: state)
+
         default:
             return errorResult("未知工具：\(call.function.name)")
         }
+    }
+
+    @MainActor
+    private static func executeLogWishDecision(content: String, decision: String, reason: String, state: AppState) -> String {
+        // 本地 wish 匹配：先找 content 完全相等的，再退化到前缀匹配
+        let matchingNote = state.notes.first(where: { n in n.kind == .wish && n.content == content })
+            ?? state.notes.first(where: { n in n.kind == .wish && n.content.hasPrefix(content) })
+
+        // daily note 条目用中文术语
+        let entry = "我想清扫 → \(decision)：\(content)\(reason.isEmpty ? "" : "（\(reason)）")"
+        MemoryService.shared.appendToToday(.notes, entry: entry)
+
+        var effect = "已记录"
+        // 兼容中英文术语（enum 已改中文，但保留英文别名以防 AI 带习惯）
+        switch decision {
+        case "删除", "delete":
+            if let note = matchingNote {
+                state.deleteNote(note)
+                effect = "已删除"
+            }
+        case "立即做", "升级为任务", "now", "promote":
+            _ = state.addPinnedTask(title: content)
+            if let note = matchingNote {
+                state.markNoteDone(note)
+            }
+            effect = "已升级为今日任务"
+        case "先留着", "defer":
+            effect = "已留存"
+        default:
+            break
+        }
+        return successResult(["decision": decision, "effect": effect, "matched": matchingNote != nil])
     }
 
     @MainActor
@@ -314,7 +465,11 @@ public enum ToolExecutor {
         }
 
         if results.isEmpty {
-            return successResult(["matches": 0, "message": "未找到匹配：\(query)"])
+            return successResult([
+                "matches": 0,
+                "message": "未找到匹配：\(query)",
+                "hint": "未命中不代表用户没记过；可尝试换同义词、拆分关键词或扩大时间窗再搜，搜不到就坦诚说'没在记忆里匹配到'而不要断言'不存在'"
+            ])
         }
         return successResult(["matches": results.count, "results": results])
     }

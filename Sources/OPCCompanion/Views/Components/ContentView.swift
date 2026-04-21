@@ -10,7 +10,7 @@ struct ContentView: View {
                 if let banner = state.banner {
                     BannerView(message: banner)
                         .padding(.horizontal, 16)
-                        .padding(.top, 10)
+                        .padding(.top, 48)  // 让出顶部 StatusBar（高约 42pt），避免盖住活跃计时/图标
                         .transition(.move(edge: .top).combined(with: .opacity))
                         .id(banner.id)
                 }
