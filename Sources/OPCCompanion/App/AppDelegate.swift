@@ -772,6 +772,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             NSEvent.removeMonitor(monitor)
             localHotkeyMonitor = nil
         }
+        NSWorkspace.shared.notificationCenter.removeObserver(self, name: NSWorkspace.activeSpaceDidChangeNotification, object: nil)
         if VoiceService.shared.isRecording {
             VoiceService.shared.stopRecording()
         }
