@@ -22,6 +22,7 @@ public final class CarbonHotkeyManager: @unchecked Sendable {
         let onRelease: () -> Void
     }
 
+    private let lock = NSLock()
     private var slots: [UInt32: Slot] = [:]
     private var nextID: UInt32 = 1
     private var eventHandler: EventHandlerRef?
@@ -40,6 +41,9 @@ public final class CarbonHotkeyManager: @unchecked Sendable {
         onPress: @escaping () -> Void,
         onRelease: @escaping () -> Void = {}
     ) -> UInt32? {
+        lock.lock()
+        defer { lock.unlock() }
+
         let id = nextID
         nextID += 1
         let hotKeyID = EventHotKeyID(signature: Self.signature, id: id)
@@ -58,11 +62,15 @@ public final class CarbonHotkeyManager: @unchecked Sendable {
     }
 
     public func unregister(id: UInt32) {
+        lock.lock()
+        defer { lock.unlock() }
         guard let slot = slots.removeValue(forKey: id) else { return }
         UnregisterEventHotKey(slot.hotKeyRef)
     }
 
     public func unregisterAll() {
+        lock.lock()
+        defer { lock.unlock() }
         for (_, slot) in slots {
             UnregisterEventHotKey(slot.hotKeyRef)
         }
@@ -100,6 +108,8 @@ public final class CarbonHotkeyManager: @unchecked Sendable {
                 let kind = GetEventKind(event)
                 let manager = Unmanaged<CarbonHotkeyManager>.fromOpaque(userData).takeUnretainedValue()
                 DispatchQueue.main.async {
+                    manager.lock.lock()
+                    defer { manager.lock.unlock() }
                     guard let slot = manager.slots[hotKeyID.id] else { return }
                     if kind == UInt32(kEventHotKeyPressed) {
                         slot.onPress()
