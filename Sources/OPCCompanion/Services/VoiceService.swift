@@ -311,7 +311,7 @@ public final class TTSService: NSObject, ObservableObject {
             utterance.voice = AVSpeechSynthesisVoice(language: "zh-CN")
         }
 
-        utterance.rate = rate != nil ? Float(rate!) : AVSpeechUtteranceDefaultSpeechRate
+        utterance.rate = rate.map(Float.init) ?? AVSpeechUtteranceDefaultSpeechRate
         utterance.pitchMultiplier = 1.0
         utterance.volume = 1.0
 

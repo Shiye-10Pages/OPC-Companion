@@ -528,9 +528,9 @@ struct ScheduledTaskForm: View {
             }
 
             HStack {
-                if task != nil {
+                if let task = task {
                     Button("删除") {
-                        onDelete(task!)
+                        onDelete(task)
                         dismiss()
                     }
                     .foregroundColor(.red)
