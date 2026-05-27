@@ -42,14 +42,16 @@ struct ChatView: View {
                             if renderedMessages.isEmpty && !state.isLoading {
                                 chatEmptyState
                             } else {
-                                LazyVStack(spacing: 14) {
+                                LazyVStack(spacing: 12) {
                                     ForEach(renderedMessages) { message in
                                         MessageBubble(message: message)
                                             .id(message.id)
+                                            .transition(.liquidIn)   // F. 液态凝结入场
                                     }
 
                                     if state.isLoading {
                                         TypingIndicator()
+                                            .transition(.liquidIn)
                                     }
 
                                     // 底部 sentinel：出现在视窗时 isNearBottom = true
@@ -59,6 +61,8 @@ struct ChatView: View {
                                         .onAppear { isNearBottom = true }
                                         .onDisappear { isNearBottom = false }
                                 }
+                                .animation(.spring(response: 0.5, dampingFraction: 0.78), value: renderedMessages.count)
+                                .animation(.easeOut(duration: 0.35), value: state.isLoading)
                                 .padding(.horizontal, 16)
                                 .padding(.vertical, 8)
                             }
@@ -990,7 +994,21 @@ struct InputBar: View {
     }
 
     var body: some View {
-        HStack(spacing: 12) {
+        VStack(spacing: 4) {
+            // 顶部 hint 条（Linear / Raycast 风 power-user 提示）
+            HStack {
+                HStack(spacing: 10) {
+                    InputKeyHint(key: "⌥Space", label: "VOICE")
+                    InputKeyHint(key: "/", label: "CMD")
+                }
+                Spacer()
+                InputKeyHint(key: "⇧⏎", label: "NEWLINE")
+                InputKeyHint(key: "⏎", label: "SEND")
+            }
+            .padding(.horizontal, 18)
+            .opacity(0.65)
+
+            HStack(spacing: 12) {
             // 输入框容器 + 命令补全菜单
             VStack(spacing: 0) {
                 if showSlashMenu {
@@ -1106,6 +1124,9 @@ struct InputBar: View {
                 active: voice.isRecording,
                 cornerRadius: AppCornerRadius.input
             )
+            .shadow(color: isFocused.wrappedValue ? theme.accent.opacity(0.30) : .clear,
+                    radius: 10, x: 0, y: 4)
+            .animation(.easeInOut(duration: 0.25), value: isFocused.wrappedValue)
             } // closes VStack(spacing: 0) — 命令补全菜单 + 输入框容器
 
             // 麦克风按钮
@@ -1133,18 +1154,27 @@ struct InputBar: View {
                 withAnimation { micPulse = isRec }
             }
 
-            // 发送按钮（iMessage 风格：accentColor 圆形 + 白色箭头）
+            // 发送按钮（主题渐变圆形 + accent 阴影，接入视觉锤）
             Button(action: onSend) {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 28))
-                    .symbolRenderingMode(.hierarchical)
-                    .foregroundStyle(text.isEmpty ? Color.secondary.opacity(0.4) : Color.accentColor)
+                ZStack {
+                    Circle().fill(theme.bubbleUserStyle)
+                    if text.isEmpty {
+                        Circle().fill(Color.gray.opacity(0.3))
+                    }
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(text.isEmpty ? theme.textSecondary : .white)
+                }
+                .frame(width: 32, height: 32)
+                .shadow(color: text.isEmpty ? .clear : theme.accent.opacity(0.35),
+                        radius: 8, x: 0, y: 3)
             }
             .buttonStyle(.plain)
             .disabled(text.isEmpty || isLoading)
+            } // closes HStack(spacing: 12) — 输入框 + mic + send 主行
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.vertical, 10)
         .background(
             Rectangle()
                 .fill(.ultraThinMaterial)
@@ -1187,6 +1217,32 @@ struct InputBar: View {
                     state.showBanner("语音识别未授权，请在系统设置 > 隐私与安全性 > 语音识别中开启", kind: .warning, duration: 6.0)
                 }
             }
+        }
+    }
+}
+
+// MARK: - 输入条快捷键提示（Linear / Raycast 风 power-user 提示）
+
+struct InputKeyHint: View {
+    @Environment(\.theme) private var theme
+    let key: String
+    let label: String
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(key)
+                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 2.5)
+                        .stroke(theme.textTertiary, lineWidth: 0.5)
+                )
+                .foregroundStyle(theme.textSecondary)
+            Text(label)
+                .font(.system(size: 9, weight: .regular, design: .monospaced))
+                .tracking(1.8)
+                .foregroundStyle(theme.textTertiary)
         }
     }
 }
