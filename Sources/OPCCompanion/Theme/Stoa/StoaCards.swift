@@ -198,52 +198,17 @@ struct StoaRitualCard: View {
 
 struct StoaTempoCard: View {
     @Environment(\.theme) private var theme
+    /// energyPct 仍接收（兼容历史 <tempo energy="X"> 标签）但不再渲染 —— 那是 AI 主观估算，
+    /// 不接入任何真实信号源，曾以"系统判断"的姿态出现具有误导性，已删除。
+    /// 仅保留 3 个 tempo 选项 + recommended 标记作为轻量信号。
     let energyPct: Int
     let options: [TempoOption]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // 能量条
-            HStack(spacing: 12) {
-                Text("Energy")
-                    .font(.system(size: 9.5, design: .monospaced))
-                    .tracking(1.8)
-                    .foregroundStyle(theme.textTertiary)
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(theme.textTertiary.opacity(0.25))
-                            .frame(height: 3)
-                        Capsule()
-                            .fill(LinearGradient(colors: [theme.ink, theme.accent],
-                                                 startPoint: .leading, endPoint: .trailing))
-                            .frame(width: geo.size.width * CGFloat(energyPct) / 100, height: 3)
-                    }
-                }
-                .frame(height: 3)
-                Text("\(energyDesc) · \(energyPct)%")
-                    .font(.system(size: 10, design: .monospaced))
-                    .tracking(0.5)
-                    .foregroundStyle(theme.textSecondary)
+        VStack(spacing: 6) {
+            ForEach(Array(options.enumerated()), id: \.offset) { _, opt in
+                optionRow(opt)
             }
-            .padding(.bottom, 4)
-            Rectangle()
-                .fill(theme.textTertiary.opacity(0.20))
-                .frame(height: 0.5)
-
-            // 选项
-            VStack(spacing: 6) {
-                ForEach(Array(options.enumerated()), id: \.offset) { _, opt in
-                    optionRow(opt)
-                }
-            }
-        }
-    }
-
-    private var energyDesc: String {
-        switch energyPct {
-        case 0..<35:  return "LOW"
-        case 35..<70: return "MID"
-        default:      return "HIGH"
         }
     }
 

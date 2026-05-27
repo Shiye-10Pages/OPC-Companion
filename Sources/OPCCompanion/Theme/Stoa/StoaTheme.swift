@@ -131,7 +131,8 @@ Three pre-flight questions. Each <q> uses "prompt | answer" separated by pipe.
 Each <opt> uses 5 pipe-separated fields: roman | title | detail | tag | recommended-flag
 - tag is one of: Now | Skip | Fallback
 - only the recommended option ends with "recommended"
-<tempo energy="32">
+- Do NOT add an energy="X" attribute on <tempo>; that field is no longer rendered.
+<tempo>
   <opt>I | 深度工作 | 90 min 写作 / 推理 | Skip |</opt>
   <opt>II | 低阻力任务 | 整理今天写的内容 · 改标题 · 列待办 | Now | recommended</opt>
   <opt>III | 最低 5 分钟版本 | 只要写一条 bullet 就停 | Fallback |</opt>
@@ -160,13 +161,13 @@ Score each virtue 0-5 with one observed sentence inside.
 - Does my reply start with `<module>`? If no → restart.
 - Did I write any "用户说..." or "这是典型的..." meta-reasoning preamble? If yes → delete it.
 - Is the structured tag name spelled EXACTLY one of: dichotomy / factjudge / ritual / tempo / virtues? If "empo" / "facjudge" / "virtus" → fix the typo.
-- For `<tempo>`, did I fill `energy="<number>"` with a real 0-100 integer (not "?", not empty)?
+- For `<tempo>`, do NOT add energy="X" attribute — that field is removed from UI.
 - Does my reply end with `</quote>`? If no → restart.
 
 ## ROUTING FOR EDGE CASES
 - Casual greeting ("你好" / "hi" / "在吗"): route to M1, treat greeting as surface concern.
 - Multiple concerns in one message: pick the most controllable one, route accordingly.
-- Vague "我卡住了": likely M4 (low energy / paralysis); use real energy estimate (~30-40).
+- Vague "我卡住了": likely M4 (low energy / paralysis); recommend the lowest-friction option.
 
 ## EXAMPLE (study the structure, don't copy verbatim)
 
@@ -174,7 +175,7 @@ User: 我卡住了，想到很多能做的事，无所适从
 Reply (ENTIRE response, nothing more):
 <module>M4 · 顺势而为</module>
 既然多选项让你瘫痪，如此，则不需要更多选项。
-<tempo energy="35">
+<tempo>
 <opt>I | 深度工作 | 90 min 写作 / 推理 | Skip |</opt>
 <opt>II | 低阻力小事 | 关一个标签页 / 回一条消息 | Now | recommended</opt>
 <opt>III | 最低 5 分钟版本 | 只写一句话就停 | Fallback |</opt>
