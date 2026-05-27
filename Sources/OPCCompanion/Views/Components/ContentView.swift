@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct ContentView: View {
     @EnvironmentObject var state: AppState
@@ -47,6 +48,7 @@ struct ContentView: View {
         .onAppear {
             playEntrance()
             syncPanelCornerRadius()
+            syncPanelAppearance()
         }
         .onChange(of: state.isPanelVisible) { _, visible in
             if visible { playEntrance() }
@@ -57,11 +59,29 @@ struct ContentView: View {
         .onChange(of: themeProvider.current.id) { _, _ in
             syncPanelCornerRadius()
         }
+        // 颜色方案切换：SwiftUI .preferredColorScheme 只影响 view tree，NSPanel 的
+        // visualEffectView 走自己的 appearance 系统。这里手动同步 panel.appearance。
+        .onChange(of: state.config.colorSchemeOverride) { _, _ in
+            syncPanelAppearance()
+        }
     }
 
     private func syncPanelCornerRadius() {
         AppDelegate.shared?.panelEffectView?.layer?.cornerRadius =
             themeProvider.current.panelCornerRadius
+    }
+
+    private func syncPanelAppearance() {
+        let override = ColorSchemeOverride(rawValue: state.config.colorSchemeOverride) ?? .system
+        let appearance: NSAppearance? = {
+            switch override {
+            case .system: return nil
+            case .light:  return NSAppearance(named: .aqua)
+            case .dark:   return NSAppearance(named: .darkAqua)
+            }
+        }()
+        AppDelegate.shared?.panel?.appearance = appearance
+        AppDelegate.shared?.quickCapturePanel?.appearance = appearance
     }
 
     private func playEntrance() {

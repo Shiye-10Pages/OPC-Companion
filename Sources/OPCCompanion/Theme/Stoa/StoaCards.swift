@@ -36,34 +36,37 @@ struct StoaDichotomyCard: View {
     let out: [String]
 
     var body: some View {
-        HStack(alignment: .top, spacing: 14) {
+        HStack(alignment: .top, spacing: 18) {
             column(label: "In Your Power",     color: theme.ink, items: inn)
             column(label: "Not In Your Power", color: theme.accent, items: out)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 6)
     }
 
     private func column(label: String, color: Color, items: [String]) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 10) {
             Text(label)
-                .font(.system(size: 9.5, design: .monospaced))
-                .tracking(2.4)
+                .font(.system(size: 10.5, weight: .medium, design: .monospaced))
+                .tracking(1.5)
                 .foregroundStyle(color)
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 8) {
                 ForEach(items, id: \.self) { line in
                     HStack(alignment: .top, spacing: 8) {
-                        Text("·").foregroundStyle(color.opacity(0.55))
+                        Text("·")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(color.opacity(0.65))
                         Text(line)
                             .font(theme.bodyFont)
-                            .foregroundStyle(theme.textPrimary)
+                            .foregroundStyle(.primary.opacity(0.92))
+                            .lineSpacing(2)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
             }
         }
-        .padding(.leading, 10)
+        .padding(.leading, 12)
         .overlay(alignment: .leading) {
-            Rectangle().fill(color).frame(width: 1.5)
+            Rectangle().fill(color).frame(width: 2)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -251,14 +254,16 @@ struct StoaTempoCard: View {
                 .foregroundStyle(theme.gold)
                 .frame(width: 24, alignment: .leading)
 
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(opt.title)
                     .font(theme.bodyFont)
                     .fontWeight(.medium)
-                    .foregroundStyle(theme.textPrimary)
+                    .foregroundStyle(.primary.opacity(0.94))
                 Text(opt.detail)
-                    .font(.system(size: 12))
-                    .foregroundStyle(theme.textTertiary)
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(.primary.opacity(0.55))
+                    .lineSpacing(1)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 

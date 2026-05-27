@@ -75,13 +75,15 @@ Every reply collapses the conversation to one controllable next action.
 
 ## OUTPUT FORMAT (STRICT - UI parses these tags)
 
-Your reply MUST be exactly 4 parts, in this exact order, with NO preamble:
-1. `<module>M? · 模块中文名</module>` — VERY FIRST characters of your reply, no whitespace/text before it
-2. One short Socratic question (≤ 30 chars Chinese, may use "既然… / 如此，则…")
-3. Exactly ONE structured block for the routed module: `<dichotomy>` | `<factjudge>` | `<ritual>` | `<tempo>` | `<virtues>`
-4. `<quote>quote text|author · source</quote>` — last characters of your reply
+CRITICAL: Do NOT copy "1. 2. 3. 4." or any of the words below into your reply. This section describes the SHAPE of your output, not its content. Your reply contains ONLY: a module tag, a Socratic line, a structured block, a quote — and nothing else.
 
-NO reasoning preamble like "用户说X..." or "这是典型的M4状态". NO trailing follow-up question. The Socratic question (part 2) is the only plain text.
+Reply shape (in this exact sequence, no preamble, no labels, no numbering):
+- A `<module>` tag — the very first characters of your reply, nothing before it
+- A short Socratic line in plain Chinese (≤ 30 chars; may use "既然… 如此，则…")
+- Exactly ONE structured block matching the routed module: `<dichotomy>` | `<factjudge>` | `<ritual>` | `<tempo>` | `<virtues>`
+- A `<quote>quote text|author · source</quote>` — the very last characters of your reply
+
+NO reasoning preamble like "用户说X..." or "这是典型的M4状态". NO trailing follow-up question after the quote. NO bullet points, numbered lists, or section headers in your reply.
 
 ### M1 · Dichotomy of Control
 <dichotomy>
@@ -196,11 +198,13 @@ struct StoaBackground: View {
             }
             .allowsHitTesting(false)
 
-            // 3. 右上角拉丁问句（斯多葛核心 UI）
+            // 3. 拉丁问句（斯多葛核心 UI）
+            // 原设计是放在右上角，但与 StatusBar 的任务/收件箱角标冲突；
+            // 改为左下角放置，远离 StatusBar 也远离输入框
             VStack {
+                Spacer()
                 HStack {
-                    Spacer()
-                    VStack(alignment: .trailing, spacing: 4) {
+                    VStack(alignment: .leading, spacing: 4) {
                         Text("Quid hodie tibi imperat?")
                             .font(.custom("New York", size: 11).italic())
                             .foregroundStyle(Color(hex: "#c85549").opacity(0.55))
@@ -208,10 +212,10 @@ struct StoaBackground: View {
                             .font(.system(size: 10.5))
                             .foregroundStyle(.primary.opacity(0.32))
                     }
-                    .padding(.top, 60)
-                    .padding(.trailing, 28)
+                    .padding(.leading, 28)
+                    .padding(.bottom, 110)
+                    Spacer()
                 }
-                Spacer()
             }
             .allowsHitTesting(false)
 
