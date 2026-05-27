@@ -2,7 +2,7 @@
 
 创建时间: 2026-05-27
 分支: feature/focused-conversation-memory
-状态: 调查中
+状态: 已解决（缓解）— 监测 + 用户可见 Banner + 设置页诊断 + 一键重注册
 
 ## 症状
 
@@ -146,3 +146,84 @@ macOS 系统输入源切换默认就是 Option+Space（中→英）/ Ctrl+Space�
 如果用户按完热键、日志显示 pattern A2（典型：输入法占用），最直接的修复是引导用户去
 「系统设置 → 键盘 → 文本输入 → 输入法 → 编辑」关掉 Option+Space 切换源；或者改用
 其他不冲突的快捷键组合（例如 Option+Shift+Space）。
+
+---
+
+## 真正的根因（运行时证据揭示）
+
+接入诊断日志后，用户复现了一次完整序列（`~/.opc-companion/logs/2026-05-27.log`）：
+
+```
+14:51:31  Carbon hotkey 注册成功 status=0
+14:51:37  6s self-check: callback has NOT fired yet
+   ↓ 12 分钟空白，用户什么都没动（用户原话："什么都没动过几分钟就好了"）
+15:03:30  突然开始工作：[CB] entry → invoke onPress → showPanel（全链路 OK）
+```
+
+`RegisterEventHotKey` 是 noErr、`InstallEventHandler` 是 noErr、`callbackEverFired` 启动后
+12 分钟仍为 false、用户没改任何系统设置 → **"系统输入法切换占用"假设被削弱**
+（关掉之后才会恢复，不会自动恢复）。
+
+**最强嫌疑：macOS Secure Event Input mode 在那 12 分钟内被某个外部进程启用了。**
+
+典型触发源：
+- 终端跑 `sudo` / `ssh` 输入密码（Terminal / iTerm2）
+- 网页里输入密码字段（浏览器 Safari/Chrome 把 Secure Input 推到系统）
+- 1Password / Bitwarden 等密码管理器解锁界面
+- macOS 锁屏密码输入
+
+任意上述情景下，`IsSecureEventInputEnabled()` 返回 true，第三方全局热键（无论 Carbon
+还是 NSEvent global monitor）都被系统屏蔽。等触发进程失焦后状态自动解除。
+这与「12 分钟后无任何操作突然好用」完全吻合。
+
+App 无法直接消除 Secure Input（这是系统级安全机制），只能：
+1. 监测 `IsSecureEventInputEnabled()` 实时状态
+2. 用户可见的 Banner 提示「你看不见的原因是 Secure Input 在屏蔽热键」
+3. 给用户一个一键重注册的兜底
+
+## 修复方案（本轮交付）
+
+### 1. CarbonHotkeyManager
+- 新增 `static func isSecureInputEnabled() -> Bool` 暴露 `IsSecureEventInputEnabled()`
+- `currentRegistrationsSnapshot()` 加上 `secureInput=...` 字段
+- C callback 首次 fire 时通过 `DispatchQueue.main.async` 通知 `HotkeyHealthMonitor`
+  清掉警告 banner
+
+### 2. HotkeyHealthMonitor（新文件 Utils/HotkeyHealthMonitor.swift）
+- 启动 6s 自检；若 `callbackEverFired == false`：
+  - case A `IsSecureEventInputEnabled() == true` → Banner（warning, 8s）：
+    「系统启用了安全输入（某个 App 在接收密码），全局热键暂时无效。等那个 App 失焦后会自动恢复。」
+  - case B Secure Input == false 但 callback 也没 fire → Banner（warning, 8s）：
+    「全局热键无响应。可能被其他 App（Alfred / Raycast / 启动器）抢占，或系统输入法占用了 Opt+Space。」
+- 之后每 5s 重检一次，最多 6 次（启动后 36s 内）；callback 首次 fire 时立刻清掉
+  warning，发一条 success banner（3s）「全局热键已恢复」
+
+### 3. 设置页「全局热键诊断」section
+- 实时显示：Carbon 回调已触发过 / Secure Input 是否启用 / `currentRegistrationsSnapshot()`
+- 按钮「重新注册热键」→ 调 `AppDelegate.reregisterHotkeys()`（unregisterAll + 重新跑 register）
+- 文字提示常见冲突源 + 排查路径
+
+### 4. 日志降级（任务 2 顺手做）
+- 删除 onPress / onRelease closure-fired 诊断行（每次按键 2-4 条）
+- 删除 `[CB] invoke onPress/onRelease`、`[register] enter`、`[unregister]`、`[unregisterAll]` 等冗余 INFO
+- 删除 `handleOptSpacePress` / `Release` / `Backtick` 内的 `[HOTKEY] xxx` 业务日志
+- 保留的关键 milestone：`[register] OK`、`[CB] entry`、`Snapshot`、`[secure-input] check`、
+  注册失败 / installEventHandler 失败的 ERROR、6s 自检 WARN 还在但通过 monitor 触发
+
+## 未来如果复发的排查路径
+
+1. **先看顶部 Banner**：启动后 6-36s 内会自动推
+   - 「系统启用了安全输入...」→ 找到正在接收密码的 App（终端 / 浏览器密码字段 / 密码管理器），
+     让它失焦或退出该界面
+   - 「全局热键无响应...」→ 检查 Alfred / Raycast / 输入法
+2. **再看设置页**：「全局热键诊断」section 实时显示状态，按「重新注册热键」一键重试
+3. **最后 grep 日志**：`tail -f ~/.opc-companion/logs/<日期>.log | grep '\[hotkey\]'`
+   - 没有 `[CB] entry` → 系统抢占（Secure Input 或输入法）
+   - 有 `[CB] entry` 但没业务执行 → 看 `slot NOT FOUND` 或主线程派发问题
+   - 有 `RegisterEventHotKey FAILED status=-9878` → eventHotKeyExistsErr，另一个 App 已注册
+
+## 关于 NSEvent fallback
+
+仍然没加。理由不变 + 新增一条：fallback 也吃 Secure Input，加了等于白加；遇到
+Secure Input 唯一正解是让用户感知到「不是 App 坏了，是系统在屏蔽」，本轮的 Banner +
+设置页诊断正是干这个的。
