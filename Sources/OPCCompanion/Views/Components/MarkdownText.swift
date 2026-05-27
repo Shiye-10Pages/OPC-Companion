@@ -4,6 +4,8 @@ import SwiftUI
 struct MarkdownText: View {
     let text: String
     @Environment(\.theme) private var theme
+    /// 字体方案：必须接入，否则 AttributedString 带的 default font 会盖掉外层 .font()
+    @Environment(\.fontStyle) private var fontStyle
 
     var body: some View {
         if shouldUseStoaRenderer {
@@ -37,7 +39,7 @@ struct MarkdownText: View {
         switch seg {
         case .text(let s):
             Text(stoaAttributed(s))
-                .font(theme.bodyFont)
+                .font(fontStyle.bodyFont)
                 .foregroundStyle(theme.textPrimary)
                 .lineSpacing(2)
                 .fixedSize(horizontal: false, vertical: true)
@@ -61,10 +63,12 @@ struct MarkdownText: View {
 
     private func stoaAttributed(_ raw: String) -> AttributedString {
         var attr = AttributedString(raw)
+        // 整段先 set 用户选的字体方案 bodyFont；再给关键词重置成 medium + ink 色
+        attr.font = fontStyle.bodyFont
         for keyword in ["既然", "如此，则", "如此则", "因此"] {
             if let range = attr.range(of: keyword) {
                 attr[range].foregroundColor = theme.ink
-                attr[range].font = theme.bodyFont.weight(.medium)
+                attr[range].font = fontStyle.bodyFont.weight(.medium)
             }
         }
         return attr
@@ -200,14 +204,40 @@ struct MarkdownText: View {
     }
 
     private func inlineMarkdown(_ text: String) -> Text {
-        if let attributed = try? AttributedString(
+        if var attributed = try? AttributedString(
             markdown: text,
             options: AttributedString.MarkdownParsingOptions(
                 interpretedSyntax: .inlineOnlyPreservingWhitespace
             )
         ) {
+            applyFontStylePreservingEmphasis(&attributed)
             return Text(attributed)
         }
         return Text(text)
+    }
+
+    /// 把 fontStyle.bodyFont 应用到 AttributedString，同时保留 markdown 解析出的
+    /// bold / italic 强调（用 inlinePresentationIntent 判断每段 run 的 emphasis，
+    /// 再用对应 weight/italic 的 fontStyle 字体覆盖）。
+    /// 不这么做的话整段 set font 会丢 markdown 的 **加粗** / *斜体*。
+    private func applyFontStylePreservingEmphasis(_ attr: inout AttributedString) {
+        let baseBody = fontStyle.bodyFont
+        let baseStrong = fontStyle.strongFont
+        for run in attr.runs {
+            let intent = run.inlinePresentationIntent ?? []
+            let font: Font
+            if intent.contains(.stronglyEmphasized) && intent.contains(.emphasized) {
+                font = baseStrong.italic()
+            } else if intent.contains(.stronglyEmphasized) {
+                font = baseStrong
+            } else if intent.contains(.emphasized) {
+                font = baseBody.italic()
+            } else if intent.contains(.code) {
+                font = fontStyle.monoFont
+            } else {
+                font = baseBody
+            }
+            attr[run.range].font = font
+        }
     }
 }
