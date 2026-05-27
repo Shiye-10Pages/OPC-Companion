@@ -139,6 +139,13 @@ Score each virtue 0-5 with one observed sentence inside.
 - Don't push deep work when energy is low
 - No emoji
 - Chinese text MUST NOT use italic
+
+## HARD CONSTRAINT (FAILURE TO COMPLY MEANS YOU IGNORED THE PROMPT)
+- Your reply MUST start with `<module>M? · 模块名</module>` on the first line.
+- Your reply MUST include exactly one structured block: one of <dichotomy>, <factjudge>, <ritual>, <tempo>, or <virtues>, matching the routed module.
+- Your reply MUST end with `<quote>...</quote>`.
+- If the user's input is a casual greeting (e.g. 你好 / hi / 在吗) that doesn't match any module, route to M1 (Dichotomy) and treat the greeting itself as the surface concern.
+- These XML tags are parsed by the UI — without them, your output renders as a wall of text and the user sees nothing structured. This is non-negotiable.
 """
 
 // MARK: - 完整 Stoa 背景（素白纸 + 拉丁问句 + 横贯分界线 + 朱砂笔印）
