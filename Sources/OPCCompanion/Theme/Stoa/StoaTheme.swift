@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 @MainActor
 public struct StoaTheme: Theme {
@@ -16,8 +17,20 @@ public struct StoaTheme: Theme {
     }
 
     public var bubbleAssistantStyle: AnyShapeStyle {
-        // 米白纸感，跟 Stoa 朱砂 + 墨蓝 5 色谱协调，不与 panel material 叠加
-        AnyShapeStyle(Color(red: 0.97, green: 0.95, blue: 0.91).opacity(0.62))
+        // 动态适应明暗模式：light 模式米白纸感；dark 模式深米色（保留朱砂调性）
+        // 必须 dynamic 才能让卡片背景跟 .primary 文字对比度匹配
+        AnyShapeStyle(Color(nsColor: Self.assistantBubbleDynamic))
+    }
+
+    private static let assistantBubbleDynamic: NSColor = NSColor(name: "StoaAssistantBubble") { appearance in
+        let isDark = appearance.bestMatch(from: [.aqua, .darkAqua, .vibrantLight, .vibrantDark])
+            .map { $0 == .darkAqua || $0 == .vibrantDark } ?? false
+        if isDark {
+            // 深米色 #2a2620，不透明度高，确保白色文字够对比
+            return NSColor(red: 0.165, green: 0.150, blue: 0.125, alpha: 0.85)
+        } else {
+            return NSColor(red: 0.97, green: 0.95, blue: 0.91, alpha: 0.62)
+        }
     }
 
     // 5 色语义
@@ -198,26 +211,9 @@ struct StoaBackground: View {
             }
             .allowsHitTesting(false)
 
-            // 3. 拉丁问句（斯多葛核心 UI）
-            // 原设计是放在右上角，但与 StatusBar 的任务/收件箱角标冲突；
-            // 改为左下角放置，远离 StatusBar 也远离输入框
-            VStack {
-                Spacer()
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Quid hodie tibi imperat?")
-                            .font(.custom("New York", size: 11).italic())
-                            .foregroundStyle(Color(hex: "#c85549").opacity(0.55))
-                        Text("今天，是什么主宰了你？")
-                            .font(.system(size: 10.5))
-                            .foregroundStyle(.primary.opacity(0.32))
-                    }
-                    .padding(.leading, 28)
-                    .padding(.bottom, 110)
-                    Spacer()
-                }
-            }
-            .allowsHitTesting(false)
+            // 注：原设计在右上角 / 左下角放过拉丁问句"Quid hodie tibi imperat?"，
+            // 但实际叠加聊天历史 / StatusBar 后都跟用户内容冲突，且整 panel 视觉
+            // 已经够"斯多葛"了，无需再硬塞装饰元素。已删除。
 
             // 4. 右下朱砂笔印（极小竖线，旋转 8°）
             VStack {
