@@ -8,6 +8,10 @@ public struct AppConfig: Codable, Sendable {
     public var apiConfig: APIConfig
     public var proxyConfig: ProxyConfig
     public var themeID: String
+    /// 颜色方案：system / light / dark
+    public var colorSchemeOverride: String
+    /// 字体方案 ID（FontStyleID 字符串）
+    public var fontStyleID: String
 
     public init(
         hotkey: String = "option+space",
@@ -16,7 +20,9 @@ public struct AppConfig: Codable, Sendable {
         voice: VoiceConfig = VoiceConfig(),
         apiConfig: APIConfig = APIConfig(),
         proxyConfig: ProxyConfig = ProxyConfig(),
-        themeID: String = "aurora"
+        themeID: String = "aurora",
+        colorSchemeOverride: String = "system",
+        fontStyleID: String = "readable"
     ) {
         self.hotkey = hotkey
         self.systemPromptFile = systemPromptFile
@@ -25,6 +31,8 @@ public struct AppConfig: Codable, Sendable {
         self.apiConfig = apiConfig
         self.proxyConfig = proxyConfig
         self.themeID = themeID
+        self.colorSchemeOverride = colorSchemeOverride
+        self.fontStyleID = fontStyleID
     }
 
     public init(from decoder: Decoder) throws {
@@ -38,10 +46,13 @@ public struct AppConfig: Codable, Sendable {
         self.apiConfig = try c.decodeIfPresent(APIConfig.self, forKey: .apiConfig) ?? APIConfig()
         self.proxyConfig = try c.decodeIfPresent(ProxyConfig.self, forKey: .proxyConfig) ?? ProxyConfig()
         self.themeID = try c.decodeIfPresent(String.self, forKey: .themeID) ?? "aurora"
+        self.colorSchemeOverride = try c.decodeIfPresent(String.self, forKey: .colorSchemeOverride) ?? "system"
+        self.fontStyleID = try c.decodeIfPresent(String.self, forKey: .fontStyleID) ?? "readable"
     }
 
     enum CodingKeys: String, CodingKey {
         case hotkey, systemPromptFile, notionDatabaseIds, voice, apiConfig, proxyConfig, themeID
+        case colorSchemeOverride, fontStyleID
     }
 }
 

@@ -8,6 +8,14 @@ struct ThemeSection: View {
         ThemeID(rawValue: state.config.themeID) ?? .aurora
     }
 
+    private var currentScheme: ColorSchemeOverride {
+        ColorSchemeOverride(rawValue: state.config.colorSchemeOverride) ?? .system
+    }
+
+    private var currentFontStyle: FontStyleID {
+        FontStyleID(rawValue: state.config.fontStyleID) ?? .readable
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -31,6 +39,47 @@ struct ThemeSection: View {
                     )
                 }
             }
+
+            // 颜色方案
+            Divider().padding(.vertical, 4)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("颜色方案")
+                    .font(.subheadline)
+                    .foregroundStyle(.primary)
+                Picker("", selection: Binding(
+                    get: { currentScheme },
+                    set: { selectScheme($0) }
+                )) {
+                    ForEach(ColorSchemeOverride.allCases, id: \.self) { s in
+                        Text(s.displayName).tag(s)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+            }
+
+            // 字体方案
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text("字体方案")
+                        .font(.subheadline)
+                    Text("「可读优先」默认；其它三套按调性选")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.secondary)
+                }
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 8),
+                                    GridItem(.flexible(), spacing: 8)],
+                          spacing: 8) {
+                    ForEach(FontStyleID.allCases, id: \.self) { id in
+                        FontStyleCard(
+                            id: id,
+                            isSelected: id == currentFontStyle,
+                            isRecommendedForCurrent: id.recommendedFor.contains(currentID),
+                            onTap: { selectFontStyle(id) }
+                        )
+                    }
+                }
+            }
         }
     }
 
@@ -40,6 +89,87 @@ struct ThemeSection: View {
         cfg.themeID = id.rawValue
         state.config = cfg
         state.saveConfig()
+    }
+
+    private func selectScheme(_ s: ColorSchemeOverride) {
+        var cfg = state.config
+        cfg.colorSchemeOverride = s.rawValue
+        state.config = cfg
+        state.saveConfig()
+    }
+
+    private func selectFontStyle(_ id: FontStyleID) {
+        var cfg = state.config
+        cfg.fontStyleID = id.rawValue
+        state.config = cfg
+        state.saveConfig()
+    }
+}
+
+// MARK: - FontStyleCard
+
+struct FontStyleCard: View {
+    let id: FontStyleID
+    let isSelected: Bool
+    let isRecommendedForCurrent: Bool
+    let onTap: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(alignment: .top, spacing: 10) {
+                // 字样预览：用该字体方案的 bodyFont 渲染示例汉字
+                let preview = FontStyleSet.from(id)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Aa 你好")
+                        .font(preview.bodyFont)
+                        .foregroundStyle(.primary)
+                    Text("写稿 · 进展")
+                        .font(preview.titleFont)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(width: 80, alignment: .leading)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 4) {
+                        Text(id.displayName)
+                            .font(.system(size: 12, weight: .semibold))
+                        if isRecommendedForCurrent && id != .readable {
+                            Text("· 推荐")
+                                .font(.system(size: 9))
+                                .foregroundStyle(.tint)
+                        }
+                    }
+                    Text(id.subtitle)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(Color.accentColor)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(Color(nsColor: .controlBackgroundColor))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(isSelected ? Color.accentColor : Color.black.opacity(0.08),
+                            lineWidth: isSelected ? 1.5 : 0.5)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .scaleEffect(isHovered ? 1.01 : 1)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .animation(.easeOut(duration: 0.18), value: isHovered)
+        .animation(.easeOut(duration: 0.22), value: isSelected)
     }
 }
 
