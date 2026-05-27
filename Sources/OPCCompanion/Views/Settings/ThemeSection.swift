@@ -3,6 +3,8 @@ import SwiftUI
 /// 设置页中的「外观主题」选择区块
 struct ThemeSection: View {
     @EnvironmentObject var state: AppState
+    @StateObject private var themeProvider = ThemeProvider.shared
+    @State private var showPromptInspector = false
 
     private var currentID: ThemeID {
         ThemeID(rawValue: state.config.themeID) ?? .aurora
@@ -80,6 +82,14 @@ struct ThemeSection: View {
                     }
                 }
             }
+
+            // 主题给 AI 的提示词（只读，可折叠）
+            Divider().padding(.vertical, 4)
+            ThemePromptInspector(
+                themeID: currentID,
+                prompt: themeProvider.current.systemPromptAppendix,
+                isOpen: $showPromptInspector
+            )
         }
     }
 
@@ -103,6 +113,92 @@ struct ThemeSection: View {
         cfg.fontStyleID = id.rawValue
         state.config = cfg
         state.saveConfig()
+    }
+}
+
+// MARK: - ThemePromptInspector
+
+/// 显示当前主题注入到 AI 的 system prompt 附录（只读）。
+/// 让用户能看到「主题给 AI 的灵魂指令」到底是什么，理解为什么 Aurora 像 Aurora、Stoa 像 Stoa。
+struct ThemePromptInspector: View {
+    let themeID: ThemeID
+    let prompt: String
+    @Binding var isOpen: Bool
+    @State private var copied = false
+
+    private var isEmpty: Bool {
+        prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.22)) { isOpen.toggle() }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: isOpen ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 10, weight: .semibold))
+                        Text("查看「\(themeID.displayName)」给 AI 的提示词")
+                            .font(.subheadline)
+                        if isEmpty {
+                            Text("（该主题无附加 prompt）")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .foregroundStyle(.primary)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                Spacer()
+
+                if isOpen && !isEmpty {
+                    Button {
+                        copyToPasteboard()
+                    } label: {
+                        Label(copied ? "已复制" : "复制",
+                              systemImage: copied ? "checkmark" : "doc.on.doc")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(copied ? Color.green : .secondary)
+                }
+            }
+
+            if isOpen && !isEmpty {
+                ScrollView {
+                    Text(prompt)
+                        .font(.system(size: 11, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(10)
+                }
+                .frame(maxHeight: 260)
+                .background(Color(nsColor: .textBackgroundColor).opacity(0.5))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color.black.opacity(0.08), lineWidth: 0.5)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+
+                Text("此 prompt 会拼在你的 base 系统提示词之后，每次发消息都会送给 AI。改主题即可换 prompt；不能在此处直接编辑。")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func copyToPasteboard() {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(prompt, forType: .string)
+        withAnimation { copied = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+            withAnimation { copied = false }
+        }
     }
 }
 

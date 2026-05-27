@@ -740,8 +740,21 @@ struct MessageBubble: View {
         message.content.contains("<think>") && !message.content.contains("</think>")
     }
 
+    /// Stoa 主题下，如果 LLM 输出了 `<module>` 但前面有 reasoning preamble，
+    /// 把 module 之前的内容剥成隐式 thinking，避免那段第三人称分析暴露在气泡里。
+    /// 仅 assistant 消息 + Stoa 主题生效；用户气泡和其他主题不动。
+    private func stripStoaPreamble(_ raw: String) -> String {
+        guard theme.id == .stoa, message.role == .assistant else { return raw }
+        guard let moduleRange = raw.range(of: "<module>") else { return raw }
+        let preamble = String(raw[raw.startIndex..<moduleRange.lowerBound])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !preamble.isEmpty else { return raw }
+        // 把 preamble 包成 <think>，让 ThinkingParser 走原有折叠路径
+        return "<think>\(preamble)</think>\n" + String(raw[moduleRange.lowerBound...])
+    }
+
     var body: some View {
-        let parsed = ThinkingParser.parse(message.content)
+        let parsed = ThinkingParser.parse(stripStoaPreamble(message.content))
 
         HStack(alignment: .top, spacing: 6) {
             if isUser { Spacer(minLength: 40) }

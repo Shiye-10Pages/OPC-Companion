@@ -76,8 +76,19 @@ public enum StoaParser {
         if !trimmed.isEmpty { segments.append(.text(trimmed)) }
     }
 
-    // 支持的标记名
-    private static let tagNames = ["module", "dichotomy", "factjudge", "ritual", "tempo", "virtues", "quote"]
+    // 支持的标记名（每个 key 是规范名；value 是常见 LLM typo 别名）
+    // M2 在 strict XML 输出场景偶尔会拼错（empo / facjudge / virtus），容错回归到规范名
+    private static let tagAliases: [String: [String]] = [
+        "module":    ["module"],
+        "dichotomy": ["dichotomy", "dichoto"],
+        "factjudge": ["factjudge", "facjudge", "fact-judge", "factjudgement"],
+        "ritual":    ["ritual", "rituals"],
+        "tempo":     ["tempo", "empo", "tempos"],
+        "virtues":   ["virtues", "virtus", "virtuelist"],
+        "quote":     ["quote", "quotes", "qoute"]
+    ]
+    /// 所有可识别标签名（含 typo 别名），保持原排序作为优先级
+    private static let tagNames: [String] = tagAliases.values.flatMap { $0 }
 
     private struct Match {
         let tag: String
@@ -99,7 +110,9 @@ public enum StoaParser {
             guard let fullRange = Range(m.range, in: text),
                   let attrRange = Range(m.range(at: 1), in: text),
                   let bodyRange = Range(m.range(at: 2), in: text) else { continue }
-            let candidate = Match(tag: name,
+            // 把 typo 别名归一化到规范 tag 名
+            let canonicalTag = tagAliases.first(where: { $0.value.contains(name) })?.key ?? name
+            let candidate = Match(tag: canonicalTag,
                                   body: String(text[bodyRange]),
                                   attrs: parseAttributes(String(text[attrRange])),
                                   range: fullRange)

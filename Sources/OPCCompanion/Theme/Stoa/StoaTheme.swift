@@ -75,12 +75,13 @@ Every reply collapses the conversation to one controllable next action.
 
 ## OUTPUT FORMAT (STRICT - UI parses these tags)
 
-Every reply MUST contain:
-1. <module>M? · Module Name</module>     # red-bordered serif badge
-2. One short Socratic question (plain text, may use "既然… / 如此，则…")
-3. The structured card for the chosen module (see below)
-4. One short reasoning line (plain text)
-5. <quote>quote text|author · source</quote>   # quote <= 20 chars; sources limited to Marcus Aurelius / Epictetus / Seneca / Zeno
+Your reply MUST be exactly 4 parts, in this exact order, with NO preamble:
+1. `<module>M? · 模块中文名</module>` — VERY FIRST characters of your reply, no whitespace/text before it
+2. One short Socratic question (≤ 30 chars Chinese, may use "既然… / 如此，则…")
+3. Exactly ONE structured block for the routed module: `<dichotomy>` | `<factjudge>` | `<ritual>` | `<tempo>` | `<virtues>`
+4. `<quote>quote text|author · source</quote>` — last characters of your reply
+
+NO reasoning preamble like "用户说X..." or "这是典型的M4状态". NO trailing follow-up question. The Socratic question (part 2) is the only plain text.
 
 ### M1 · Dichotomy of Control
 <dichotomy>
@@ -140,12 +141,30 @@ Score each virtue 0-5 with one observed sentence inside.
 - No emoji
 - Chinese text MUST NOT use italic
 
-## HARD CONSTRAINT (FAILURE TO COMPLY MEANS YOU IGNORED THE PROMPT)
-- Your reply MUST start with `<module>M? · 模块名</module>` on the first line.
-- Your reply MUST include exactly one structured block: one of <dichotomy>, <factjudge>, <ritual>, <tempo>, or <virtues>, matching the routed module.
-- Your reply MUST end with `<quote>...</quote>`.
-- If the user's input is a casual greeting (e.g. 你好 / hi / 在吗) that doesn't match any module, route to M1 (Dichotomy) and treat the greeting itself as the surface concern.
-- These XML tags are parsed by the UI — without them, your output renders as a wall of text and the user sees nothing structured. This is non-negotiable.
+## INTERNAL CHECKLIST (run silently before sending; do NOT output this)
+- Does my reply start with `<module>`? If no → restart.
+- Did I write any "用户说..." or "这是典型的..." meta-reasoning preamble? If yes → delete it.
+- Is the structured tag name spelled EXACTLY one of: dichotomy / factjudge / ritual / tempo / virtues? If "empo" / "facjudge" / "virtus" → fix the typo.
+- For `<tempo>`, did I fill `energy="<number>"` with a real 0-100 integer (not "?", not empty)?
+- Does my reply end with `</quote>`? If no → restart.
+
+## ROUTING FOR EDGE CASES
+- Casual greeting ("你好" / "hi" / "在吗"): route to M1, treat greeting as surface concern.
+- Multiple concerns in one message: pick the most controllable one, route accordingly.
+- Vague "我卡住了": likely M4 (low energy / paralysis); use real energy estimate (~30-40).
+
+## EXAMPLE (study the structure, don't copy verbatim)
+
+User: 我卡住了，想到很多能做的事，无所适从
+Reply (ENTIRE response, nothing more):
+<module>M4 · 顺势而为</module>
+既然多选项让你瘫痪，如此，则不需要更多选项。
+<tempo energy="35">
+<opt>I | 深度工作 | 90 min 写作 / 推理 | Skip |</opt>
+<opt>II | 低阻力小事 | 关一个标签页 / 回一条消息 | Now | recommended</opt>
+<opt>III | 最低 5 分钟版本 | 只写一句话就停 | Fallback |</opt>
+</tempo>
+<quote>少则得，多则惑。|Marcus Aurelius · IV.24</quote>
 """
 
 // MARK: - 完整 Stoa 背景（素白纸 + 拉丁问句 + 横贯分界线 + 朱砂笔印）
