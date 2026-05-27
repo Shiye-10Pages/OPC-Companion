@@ -37,14 +37,48 @@ final class YellowBadgeView: NSView {
     }
 }
 
+/// 在 styleMask 不含 .titled 的 NSPanel 里，AppKit 不会自动把 Edit 菜单
+/// 的 cut:/copy:/paste:/selectAll: 路由到 SwiftUI TextField/SecureField。
+/// 我们在 panel 层显式重派发，保证粘贴在 SecureField（设置页 API Key 等）里也工作。
+private func forwardStandardEditCommands(_ event: NSEvent) -> Bool {
+    guard event.modifierFlags.contains(.command),
+          !event.modifierFlags.contains(.option),
+          !event.modifierFlags.contains(.control) else { return false }
+    let chars = event.charactersIgnoringModifiers ?? ""
+    switch chars {
+    case "v":
+        return NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: nil)
+    case "c":
+        return NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: nil)
+    case "x":
+        return NSApp.sendAction(#selector(NSText.cut(_:)), to: nil, from: nil)
+    case "a":
+        return NSApp.sendAction(#selector(NSResponder.selectAll(_:)), to: nil, from: nil)
+    case "z":
+        let sel: Selector = event.modifierFlags.contains(.shift)
+            ? Selector(("redo:")) : Selector(("undo:"))
+        return NSApp.sendAction(sel, to: nil, from: nil)
+    default:
+        return false
+    }
+}
+
 final class HUDPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if forwardStandardEditCommands(event) { return true }
+        return super.performKeyEquivalent(with: event)
+    }
 }
 
 final class QuickCapturePanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if forwardStandardEditCommands(event) { return true }
+        return super.performKeyEquivalent(with: event)
+    }
 }
 
 @MainActor
