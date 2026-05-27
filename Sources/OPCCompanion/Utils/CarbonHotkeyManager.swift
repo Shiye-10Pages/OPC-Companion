@@ -12,11 +12,20 @@ import Carbon.HIToolbox
 ///     // duration < 0.5 → 短按；否则长按
 /// })
 /// ```
+///
+/// 诊断（HOTKEY-DIAG）：
+/// - register 入口 + RegisterEventHotKey OSStatus
+/// - installEventHandler 入口 + InstallEventHandler OSStatus
+/// - Carbon C callback 入口（确认事件是否真的被派发过来）
+/// - slot 查找成功/失败
+/// - onPress / onRelease 调用前后
 public final class CarbonHotkeyManager: @unchecked Sendable {
     public static let shared = CarbonHotkeyManager()
 
     private struct Slot {
         let id: UInt32
+        let keyCode: UInt32
+        let modifiers: UInt32
         let hotKeyRef: EventHotKeyRef
         let onPress: () -> Void
         let onRelease: () -> Void
@@ -25,8 +34,14 @@ public final class CarbonHotkeyManager: @unchecked Sendable {
     private var slots: [UInt32: Slot] = [:]
     private var nextID: UInt32 = 1
     private var eventHandler: EventHandlerRef?
+    private(set) var handlerInstalled: Bool = false
+    private(set) var handlerInstallStatus: OSStatus = noErr
+
+    /// callback 是否真的被 Carbon 派发过（用于"5 秒内没回调就告警/启用 fallback"判断）
+    private(set) var callbackEverFired: Bool = false
 
     private init() {
+        diag("[CarbonHotkeyManager] init - installing event handler")
         installEventHandler()
     }
 
@@ -42,6 +57,7 @@ public final class CarbonHotkeyManager: @unchecked Sendable {
     ) -> UInt32? {
         let id = nextID
         nextID += 1
+        diag("[register] enter id=\(id) keyCode=\(keyCode) modifiers=0x\(String(modifiers, radix: 16)) handlerInstalled=\(handlerInstalled)")
         let hotKeyID = EventHotKeyID(signature: Self.signature, id: id)
         var ref: EventHotKeyRef?
         let status = RegisterEventHotKey(
@@ -52,14 +68,39 @@ public final class CarbonHotkeyManager: @unchecked Sendable {
             0,
             &ref
         )
-        guard status == noErr, let ref = ref else { return nil }
-        slots[id] = Slot(id: id, hotKeyRef: ref, onPress: onPress, onRelease: onRelease)
+        if status != noErr {
+            // -9878 (eventHotKeyExistsErr) 通常意味着该组合已被其他 app/系统占用
+            OPCLogger.shared.log(
+                .error,
+                "hotkey",
+                "RegisterEventHotKey FAILED id=\(id) keyCode=\(keyCode) modifiers=0x\(String(modifiers, radix: 16)) status=\(status) — 该热键可能已被系统或其他 App 占用（如系统输入法切换抢占 Option+Space），请到「系统设置 → 键盘 → 键盘快捷键」检查冲突"
+            )
+            return nil
+        }
+        guard let ref = ref else {
+            OPCLogger.shared.log(
+                .error,
+                "hotkey",
+                "RegisterEventHotKey returned noErr but ref is nil — Carbon internal error id=\(id)"
+            )
+            return nil
+        }
+        slots[id] = Slot(
+            id: id,
+            keyCode: keyCode,
+            modifiers: modifiers,
+            hotKeyRef: ref,
+            onPress: onPress,
+            onRelease: onRelease
+        )
+        diag("[register] OK id=\(id) keyCode=\(keyCode) slots.count=\(slots.count)")
         return id
     }
 
     public func unregister(id: UInt32) {
         guard let slot = slots.removeValue(forKey: id) else { return }
         UnregisterEventHotKey(slot.hotKeyRef)
+        diag("[unregister] id=\(id)")
     }
 
     public func unregisterAll() {
@@ -67,6 +108,13 @@ public final class CarbonHotkeyManager: @unchecked Sendable {
             UnregisterEventHotKey(slot.hotKeyRef)
         }
         slots.removeAll()
+        diag("[unregisterAll] cleared")
+    }
+
+    /// 调试快照：当前已注册的热键 id / keyCode / modifiers 列表
+    public func currentRegistrationsSnapshot() -> String {
+        let entries = slots.values.map { "id=\($0.id) keyCode=\($0.keyCode) mod=0x\(String($0.modifiers, radix: 16))" }
+        return "[snapshot] handlerInstalled=\(handlerInstalled) handlerInstallStatus=\(handlerInstallStatus) callbackEverFired=\(callbackEverFired) count=\(slots.count) entries=[\(entries.joined(separator: "; "))]"
     }
 
     // MARK: - Internal
@@ -79,10 +127,12 @@ public final class CarbonHotkeyManager: @unchecked Sendable {
             EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyReleased))
         ]
         let selfPtr = Unmanaged.passUnretained(self).toOpaque()
-        InstallEventHandler(
+        let status = InstallEventHandler(
             GetApplicationEventTarget(),
             { (_, event, userData) -> OSStatus in
+                // 注意：这是 Carbon C callback，可能在主线程之外。OPCLogger 内部 NSLock 保护，可安全调用。
                 guard let event = event, let userData = userData else {
+                    OPCLogger.shared.log(.warn, "hotkey", "[CB] event or userData is nil")
                     return OSStatus(eventNotHandledErr)
                 }
                 var hotKeyID = EventHotKeyID()
@@ -95,15 +145,26 @@ public final class CarbonHotkeyManager: @unchecked Sendable {
                     nil,
                     &hotKeyID
                 )
-                guard err == noErr else { return OSStatus(eventNotHandledErr) }
+                guard err == noErr else {
+                    OPCLogger.shared.log(.warn, "hotkey", "[CB] GetEventParameter failed err=\(err)")
+                    return OSStatus(eventNotHandledErr)
+                }
 
                 let kind = GetEventKind(event)
                 let manager = Unmanaged<CarbonHotkeyManager>.fromOpaque(userData).takeUnretainedValue()
+                manager.callbackEverFired = true
+                OPCLogger.shared.log(.info, "hotkey", "[CB] entry id=\(hotKeyID.id) kind=\(kind == UInt32(kEventHotKeyPressed) ? "PRESSED" : (kind == UInt32(kEventHotKeyReleased) ? "RELEASED" : "kind=\(kind)"))")
+
                 DispatchQueue.main.async {
-                    guard let slot = manager.slots[hotKeyID.id] else { return }
+                    guard let slot = manager.slots[hotKeyID.id] else {
+                        OPCLogger.shared.log(.warn, "hotkey", "[CB] slot NOT FOUND id=\(hotKeyID.id) slots=\(manager.slots.keys.sorted())")
+                        return
+                    }
                     if kind == UInt32(kEventHotKeyPressed) {
+                        OPCLogger.shared.log(.info, "hotkey", "[CB] invoke onPress id=\(slot.id) keyCode=\(slot.keyCode)")
                         slot.onPress()
                     } else if kind == UInt32(kEventHotKeyReleased) {
+                        OPCLogger.shared.log(.info, "hotkey", "[CB] invoke onRelease id=\(slot.id) keyCode=\(slot.keyCode)")
                         slot.onRelease()
                     }
                 }
@@ -114,5 +175,21 @@ public final class CarbonHotkeyManager: @unchecked Sendable {
             selfPtr,
             &eventHandler
         )
+        handlerInstallStatus = status
+        if status == noErr {
+            handlerInstalled = true
+            diag("[installEventHandler] OK eventHandler=\(String(describing: eventHandler))")
+        } else {
+            handlerInstalled = false
+            OPCLogger.shared.log(
+                .error,
+                "hotkey",
+                "InstallEventHandler FAILED status=\(status) — Carbon 事件处理器未装载，所有热键将不会触发回调"
+            )
+        }
+    }
+
+    private func diag(_ msg: String) {
+        OPCLogger.shared.log(.info, "hotkey", "[HOTKEY-DIAG] \(msg)")
     }
 }
