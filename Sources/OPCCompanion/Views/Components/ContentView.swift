@@ -25,13 +25,15 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .opacity(streamVisible ? 1 : 0)
                 .offset(y: streamVisible ? 0 : 8)
-
-            PanelWatermark()
-                .opacity(bgVisible ? 0.9 : 0)
         }
         .frame(width: 760, height: 620)
-        .clipShape(RoundedRectangle(cornerRadius: themeProvider.current.panelCornerRadius))
         .environment(\.theme, themeProvider.current)
+        .environment(\.fontStyle, FontStyleSet.from(
+            FontStyleID(rawValue: state.config.fontStyleID) ?? .readable
+        ))
+        .preferredColorScheme(
+            (ColorSchemeOverride(rawValue: state.config.colorSchemeOverride) ?? .system).resolved
+        )
         .overlay(alignment: .top) {
             if let banner = state.banner {
                 BannerView(message: banner)
@@ -42,12 +44,24 @@ struct ContentView: View {
             }
         }
         .animation(AppAnimations.smooth, value: state.banner?.id)
-        .onAppear { playEntrance() }
+        .onAppear {
+            playEntrance()
+            syncPanelCornerRadius()
+        }
         .onChange(of: state.isPanelVisible) { _, visible in
             if visible { playEntrance() }
         }
         // 注：themeID 变更由 ThemeProvider.bind() 内部通过 AppState.$config 订阅自动同步，
-        // 这里不再手动 update，避免双触发与未来死代码。
+        // 这里仅在主题切换时把 visualEffectView 的圆角同步到主题值，避免 effectView 16
+        // 跟 SwiftUI 26/4 不一致导致「圆角内有圆角 / 锐角」。
+        .onChange(of: themeProvider.current.id) { _, _ in
+            syncPanelCornerRadius()
+        }
+    }
+
+    private func syncPanelCornerRadius() {
+        AppDelegate.shared?.panelEffectView?.layer?.cornerRadius =
+            themeProvider.current.panelCornerRadius
     }
 
     private func playEntrance() {
@@ -66,29 +80,4 @@ struct ContentView: View {
     }
 }
 
-private struct PanelWatermark: View {
-    @EnvironmentObject var state: AppState
-    @Environment(\.theme) private var theme
-
-    var body: some View {
-        VStack {
-            Spacer()
-            HStack {
-                HStack(spacing: 7) {
-                    Circle()
-                        .fill(Color(hex: "#4ED8C0"))
-                        .frame(width: 4, height: 4)
-                        .shadow(color: Color(hex: "#4ED8C0").opacity(0.85), radius: 3)
-                    Text("OPC · SOUL · ONLINE")
-                }
-                Spacer()
-                Text("SN · 760x620 · \(state.config.themeID.uppercased())")
-            }
-            .font(.system(size: 9, design: .monospaced))
-            .foregroundStyle(theme.textTertiary)
-            .padding(.horizontal, 14)
-            .padding(.bottom, 6)
-            .allowsHitTesting(false)
-        }
-    }
-}
+// PanelWatermark 已移除：装饰水印跟输入框抢底部空间，跟"减一切冗余"哲学冲突

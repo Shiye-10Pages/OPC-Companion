@@ -18,8 +18,8 @@ struct MainTabView: View {
                 NewTabBar(visibleTab: visibleTab, tabs: Self.visibleTabs) { tab in
                     selectVisibleTab(tab)
                 }
-                .padding(.top, 10)
-                .padding(.bottom, 6)
+                .padding(.top, 12)
+                .padding(.bottom, 14)   // 拉开与 StatusBar 的呼吸距离，避免双重背景硬边
 
                 // —— 内容区：按可见 tab 切换 ——
                 Group {
@@ -319,6 +319,7 @@ struct TabButton: View {
     let isSelected: Bool
     let action: () -> Void
     @Environment(\.theme) private var theme
+    @Environment(\.fontStyle) private var fontStyle
 
     var body: some View {
         Button(action: action) {
@@ -326,11 +327,13 @@ struct TabButton: View {
                 Image(systemName: isSelected ? tab.iconFilled : tab.icon)
                     .font(.system(size: 13, weight: .medium))
                 Text(tab.title)
-                    .font(theme.titleFont)
+                    .font(fontStyle.titleFont)
                     .tracking(isSelected ? 0.04 : 0.06)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 7)
+            .frame(minHeight: 32)              // 保证热区不小于 32pt
+            .contentShape(Capsule())            // 整个胶囊区可点
             .foregroundStyle(isSelected ? Color.white : theme.textSecondary)
             .background(
                 Capsule()

@@ -86,6 +86,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     static var shared: AppDelegate!
 
     var panel: NSPanel?
+    /// 主面板的 visualEffectView 引用，便于主题切换时同步 layer.cornerRadius
+    weak var panelEffectView: NSVisualEffectView?
     var quickCapturePanel: NSPanel?
     var statusItem: NSStatusItem?
     var popover: NSPopover?
@@ -332,9 +334,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         effectView.blendingMode = .behindWindow
         effectView.state = .active
         effectView.wantsLayer = true
-        effectView.layer?.cornerRadius = AppCornerRadius.panel
+        // 初始圆角 = 当前主题 panelCornerRadius；后续主题切换会通过 syncPanelCornerRadius 跟随
+        effectView.layer?.cornerRadius = ThemeProvider.shared.current.panelCornerRadius
         effectView.layer?.masksToBounds = true
         effectView.autoresizingMask = [.width, .height]
+        self.panelEffectView = effectView
 
         hostingView.frame = effectView.bounds
         hostingView.autoresizingMask = [.width, .height]

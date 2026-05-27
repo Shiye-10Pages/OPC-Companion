@@ -21,7 +21,9 @@ public struct AuroraTheme: Theme {
     }
 
     public var bubbleAssistantStyle: AnyShapeStyle {
-        AnyShapeStyle(.ultraThinMaterial)
+        // panel 背景本身已是 ultraThinMaterial，气泡再叠 material 会双层穿透产生硬光斑。
+        // 改为柔和淡色实底 + 极淡描边，让气泡跟 panel 明确分层。
+        AnyShapeStyle(Color.white.opacity(0.42))
     }
 
     public var accent: Color  { Color(red: 0.91, green: 0.64, blue: 0.79) }   // E8A4C9

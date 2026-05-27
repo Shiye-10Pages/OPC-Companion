@@ -16,7 +16,8 @@ public struct StoaTheme: Theme {
     }
 
     public var bubbleAssistantStyle: AnyShapeStyle {
-        AnyShapeStyle(.ultraThinMaterial.opacity(0.5))
+        // 米白纸感，跟 Stoa 朱砂 + 墨蓝 5 色谱协调，不与 panel material 叠加
+        AnyShapeStyle(Color(red: 0.97, green: 0.95, blue: 0.91).opacity(0.62))
     }
 
     // 5 色语义

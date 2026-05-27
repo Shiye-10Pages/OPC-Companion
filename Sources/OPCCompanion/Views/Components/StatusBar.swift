@@ -46,8 +46,14 @@ struct StatusBar: View {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
-            .background(.ultraThinMaterial)
-            .overlay(Divider().opacity(0.5), alignment: .bottom)
+            // 不再叠 ultraThinMaterial（与 panel 背景已是同种 material 会双层穿透）
+            // 不再加 divider（与上方胶囊形成硬边）；改为极淡底分隔，让 StatusBar 融入 panel
+            .overlay(
+                Rectangle()
+                    .fill(Color.primary.opacity(0.06))
+                    .frame(height: 0.5),
+                alignment: .bottom
+            )
         }
     }
 
@@ -144,12 +150,12 @@ struct StatusBarIcon: View {
         Button(action: action) {
             ZStack(alignment: .topTrailing) {
                 Image(systemName: systemImage)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: 14, weight: .medium))
                     .symbolRenderingMode(.hierarchical)
                     .foregroundStyle(isActive ? Color.accentColor : (hovering ? Color.primary : Color.secondary))
-                    .frame(width: 30, height: 26)
+                    .frame(width: 36, height: 32)   // 扩大热区从 30×26 → 36×32
                     .background(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
                             .fill(isActive
                                   ? Color.accentColor.opacity(0.14)
                                   : (hovering ? Color.secondary.opacity(0.1) : Color.clear))

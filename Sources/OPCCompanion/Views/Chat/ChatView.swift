@@ -723,6 +723,7 @@ struct MessageBubble: View {
     let message: Message
     @EnvironmentObject var state: AppState
     @Environment(\.theme) private var theme
+    @Environment(\.fontStyle) private var fontStyle
     @State private var hovering = false
 
     private var isUser: Bool {
@@ -763,13 +764,18 @@ struct MessageBubble: View {
                 // 气泡正文：思考中跳过，thinking-only 跳过，有 main 才渲染
                 if let displayText = bubbleDisplayText(parsed: parsed), !displayText.isEmpty {
                     MarkdownText(text: displayText)
-                    .font(theme.bodyFont)
+                    .font(fontStyle.bodyFont)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
                     .foregroundStyle(isUser ? .white : theme.textPrimary)
                     .background(
                         RoundedRectangle(cornerRadius: theme.bubbleCornerRadius, style: .continuous)
                             .fill(isUser ? theme.bubbleUserStyle : theme.bubbleAssistantStyle)
+                    )
+                    // AI 气泡极淡内描边，强化与 panel 的层次（不开给用户气泡，那已有 edge glow）
+                    .overlay(
+                        RoundedRectangle(cornerRadius: theme.bubbleCornerRadius, style: .continuous)
+                            .stroke(isUser ? Color.clear : theme.textTertiary.opacity(0.16), lineWidth: 0.5)
                     )
                     .auroraEdgeGlow(
                         active: isUser && theme.id == .aurora,
@@ -784,7 +790,7 @@ struct MessageBubble: View {
                             .font(.caption)
                     }
                     Text(formatTime(message.timestamp))
-                        .font(theme.timestampFont)
+                        .font(fontStyle.timestampFont)
                         .foregroundColor(theme.textTertiary)
                 }
             }
@@ -962,6 +968,7 @@ struct InputBar: View {
     let onSend: () -> Void
     @EnvironmentObject var state: AppState
     @Environment(\.theme) private var theme
+    @Environment(\.fontStyle) private var fontStyle
     @ObservedObject private var voice = VoiceService.shared
     @State private var micPulse = false
     @State private var slashSelectedIndex = 0
@@ -995,18 +1002,13 @@ struct InputBar: View {
 
     var body: some View {
         VStack(spacing: 4) {
-            // 顶部 hint 条（Linear / Raycast 风 power-user 提示）
+            // 顶部 hint 条：右下角极简单条 ⏎ SEND，不抢戏
             HStack {
-                HStack(spacing: 10) {
-                    InputKeyHint(key: "⌥Space", label: "VOICE")
-                    InputKeyHint(key: "/", label: "CMD")
-                }
                 Spacer()
-                InputKeyHint(key: "⇧⏎", label: "NEWLINE")
                 InputKeyHint(key: "⏎", label: "SEND")
             }
             .padding(.horizontal, 18)
-            .opacity(0.65)
+            .opacity(0.55)
 
             HStack(spacing: 12) {
             // 输入框容器 + 命令补全菜单
@@ -1026,7 +1028,7 @@ struct InputBar: View {
                         .lineLimit(1...6)
                         .textFieldStyle(.plain)
                         .focused(isFocused)
-                        .font(theme.bodyFont)
+                        .font(fontStyle.bodyFont)
                         .foregroundStyle(theme.textPrimary)
                         .onSubmit {
                             if showSlashMenu {
@@ -1129,7 +1131,7 @@ struct InputBar: View {
             .animation(.easeInOut(duration: 0.25), value: isFocused.wrappedValue)
             } // closes VStack(spacing: 0) — 命令补全菜单 + 输入框容器
 
-            // 麦克风按钮
+            // 麦克风按钮（扩大热区到 40×40，按钮本体仍 32 视觉一致）
             Button {
                 toggleRecording()
             } label: {
@@ -1139,7 +1141,7 @@ struct InputBar: View {
                     .frame(width: 32, height: 32)
                     .background(
                         Circle()
-                            .fill(voice.isRecording ? .red.opacity(0.2) : Color.clear)
+                            .fill(voice.isRecording ? .red.opacity(0.1) : Color.clear)
                     )
                     .scaleEffect(micPulse ? 1.15 : 1.0)
                     .animation(
@@ -1148,13 +1150,15 @@ struct InputBar: View {
                             : .default,
                         value: micPulse
                     )
+                    .frame(width: 40, height: 40)        // 外圈热区
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .onChange(of: voice.isRecording) { _, isRec in
                 withAnimation { micPulse = isRec }
             }
 
-            // 发送按钮（主题渐变圆形 + accent 阴影，接入视觉锤）
+            // 发送按钮（主题渐变圆形 + accent 阴影，接入视觉锤；热区扩到 40×40）
             Button(action: onSend) {
                 ZStack {
                     Circle().fill(theme.bubbleUserStyle)
@@ -1168,6 +1172,8 @@ struct InputBar: View {
                 .frame(width: 32, height: 32)
                 .shadow(color: text.isEmpty ? .clear : theme.accent.opacity(0.35),
                         radius: 8, x: 0, y: 3)
+                .frame(width: 40, height: 40)            // 外圈热区
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(text.isEmpty || isLoading)
