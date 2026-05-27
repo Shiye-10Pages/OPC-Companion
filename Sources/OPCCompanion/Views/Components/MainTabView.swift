@@ -2,54 +2,70 @@ import SwiftUI
 
 struct MainTabView: View {
     @EnvironmentObject var state: AppState
+    @Environment(\.theme) private var theme
+
+    /// 三胶囊导航的当前可见 tab：只能是 .chat / .history / .settings 三者之一。
+    /// state.selectedTab 仍保留 5 个 case，.tasks / .inbox 作为 chat 上叠加的 popover 触发态。
+    @State private var visibleTab: AppTab = .chat
+
+    /// 可见的三颗胶囊（顺序固定）
+    private static let visibleTabs: [AppTab] = [.chat, .history, .settings]
 
     var body: some View {
         ZStack(alignment: .top) {
             VStack(spacing: 0) {
-                StatusBar(activeTimerTitle: state.activeTask?.title)
+                // —— 顶部胶囊导航（始终常驻）——
+                NewTabBar(visibleTab: visibleTab, tabs: Self.visibleTabs) { tab in
+                    selectVisibleTab(tab)
+                }
+                .padding(.top, 10)
+                .padding(.bottom, 6)
 
-                // 未锁定焦点 常驻提示（TimelineView 驱动小时判断，用户"完成仪式"后会自动消失）
-                TimelineView(.periodic(from: .now, by: 60)) { _ in
-                    if shouldShowRitualMissingBar() {
-                        ritualMissingBar
+                // —— 内容区：按可见 tab 切换 ——
+                Group {
+                    switch visibleTab {
+                    case .chat:
+                        chatStack
+                    case .history:
+                        HistoryView()
+                    case .settings:
+                        SettingsView()
+                    default:
+                        chatStack
                     }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .transition(.opacity)
+            }
 
-                if state.showProgressPingPanel {
-                    ProgressPingView()
-                        .padding(.horizontal, 12)
-                        .padding(.top, 8)
-                        .transition(.move(edge: .top).combined(with: .opacity))
+            // —— 仅在 chat tab 显示 popover / overlay 层 ——
+            if visibleTab == .chat {
+                if state.selectedTab == .tasks || state.selectedTab == .inbox {
+                    popoverBackdrop
+                    popoverPanel
                 }
 
-                ChatView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-
-            if state.selectedTab != .chat {
-                popoverBackdrop
-                popoverPanel
-            }
-
-            if state.showAddTaskOverlay {
-                addTaskOverlay
-            }
-            if state.showMorningRitual {
-                morningRitualOverlay
-            }
-            if !state.nextCandidates.isEmpty {
-                nextCandidatesOverlay
-            }
-            if let pending = state.postMortemQueue.first {
-                postMortemOverlay(task: pending)
-            }
-            if state.showScheduledTaskForm {
-                scheduledTaskFormOverlay
-            }
-            if state.showDreamingReview && !state.pendingLearnings.isEmpty {
-                dreamingReviewOverlay
+                if state.showAddTaskOverlay {
+                    addTaskOverlay
+                }
+                if state.showMorningRitual {
+                    morningRitualOverlay
+                }
+                if !state.nextCandidates.isEmpty {
+                    nextCandidatesOverlay
+                }
+                if let pending = state.postMortemQueue.first {
+                    postMortemOverlay(task: pending)
+                }
+                if state.showScheduledTaskForm {
+                    scheduledTaskFormOverlay
+                }
+                if state.showDreamingReview && !state.pendingLearnings.isEmpty {
+                    dreamingReviewOverlay
+                }
             }
         }
+        .animation(AppAnimations.smooth, value: visibleTab)
         .animation(AppAnimations.quick, value: state.selectedTab)
         .animation(AppAnimations.quick, value: state.showAddTaskOverlay)
         .animation(AppAnimations.standard, value: state.showProgressPingPanel)
@@ -58,7 +74,69 @@ struct MainTabView: View {
         .animation(AppAnimations.quick, value: state.postMortemQueue.count)
         .animation(AppAnimations.quick, value: state.showScheduledTaskForm)
         .animation(AppAnimations.quick, value: state.showDreamingReview)
+        .onAppear { syncVisibleTab(from: state.selectedTab) }
+        .onChange(of: state.selectedTab) { _, newValue in
+            // 外部代码（AppDelegate / 槽位命令 / openInbox）设置 selectedTab 时，
+            // 如果是 chat/history/settings 切换可见 tab；
+            // 如果是 tasks/inbox 则把可见 tab 拉回 chat，让 popover 显示。
+            syncVisibleTab(from: newValue)
+        }
     }
+
+    // MARK: - 可见 tab 同步
+
+    private func selectVisibleTab(_ tab: AppTab) {
+        guard Self.visibleTabs.contains(tab) else { return }
+        withAnimation(AppAnimations.smooth) {
+            visibleTab = tab
+            state.selectedTab = tab
+        }
+    }
+
+    private func syncVisibleTab(from selected: AppTab) {
+        switch selected {
+        case .chat, .history, .settings:
+            if visibleTab != selected {
+                withAnimation(AppAnimations.smooth) {
+                    visibleTab = selected
+                }
+            }
+        case .tasks, .inbox:
+            // 显示 popover 的同时确保底层在 chat tab
+            if visibleTab != .chat {
+                withAnimation(AppAnimations.smooth) {
+                    visibleTab = .chat
+                }
+            }
+        }
+    }
+
+    // MARK: - Chat 内容栈（StatusBar + 仪式提示 + ProgressPing + ChatView）
+
+    private var chatStack: some View {
+        VStack(spacing: 0) {
+            StatusBar(activeTimerTitle: state.activeTask?.title)
+
+            // 未锁定焦点 常驻提示（TimelineView 驱动小时判断，用户"完成仪式"后会自动消失）
+            TimelineView(.periodic(from: .now, by: 60)) { _ in
+                if shouldShowRitualMissingBar() {
+                    ritualMissingBar
+                }
+            }
+
+            if state.showProgressPingPanel {
+                ProgressPingView()
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+
+            ChatView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    // MARK: - Overlay 们（保持原行为）
 
     private var scheduledTaskFormOverlay: some View {
         ZStack {
@@ -184,9 +262,7 @@ struct MainTabView: View {
                 switch state.selectedTab {
                 case .tasks: TasksPopoverContent()
                 case .inbox: InboxView()
-                case .history: HistoryPopoverContent()
-                case .settings: SettingsView()
-                case .chat: EmptyView()
+                default: EmptyView()
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -202,6 +278,83 @@ struct MainTabView: View {
     private func closePopover() {
         withAnimation(AppAnimations.quick) {
             state.selectedTab = .chat
+        }
+    }
+}
+
+// MARK: - 新 Tab 栏（胶囊设计，3 颗：对话 / 历史 / 设置）
+
+struct NewTabBar: View {
+    let visibleTab: AppTab
+    let tabs: [AppTab]
+    let onSelect: (AppTab) -> Void
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(tabs, id: \.self) { tab in
+                TabButton(
+                    tab: tab,
+                    isSelected: visibleTab == tab,
+                    action: { onSelect(tab) }
+                )
+            }
+        }
+        .padding(4)
+        .background(
+            Capsule()
+                .fill(.ultraThinMaterial)
+                .opacity(0.55)
+        )
+        .overlay(
+            Capsule()
+                .stroke(theme.textTertiary.opacity(0.25), lineWidth: 0.5)
+        )
+        .shadow(color: Color.black.opacity(0.15), radius: 8, x: 0, y: 2)
+    }
+}
+
+struct TabButton: View {
+    let tab: AppTab
+    let isSelected: Bool
+    let action: () -> Void
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: isSelected ? tab.iconFilled : tab.icon)
+                    .font(.system(size: 13, weight: .medium))
+                Text(tab.title)
+                    .font(theme.titleFont)
+                    .tracking(isSelected ? 0.04 : 0.06)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 7)
+            .foregroundStyle(isSelected ? Color.white : theme.textSecondary)
+            .background(
+                Capsule()
+                    .fill(isSelected
+                          ? AnyShapeStyle(theme.bubbleUserStyle)
+                          : AnyShapeStyle(Color.clear))
+            )
+            .shadow(color: isSelected ? theme.accent.opacity(0.30) : .clear,
+                    radius: 6, x: 0, y: 2)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - AppTab 扩展（填充图标，仅胶囊用）
+
+extension AppTab {
+    var iconFilled: String {
+        switch self {
+        case .chat: return "bubble.left.and.text.bubble.right.fill"
+        case .tasks: return "checklist"
+        case .inbox: return "tray.fill"
+        case .history: return "clock.fill"
+        case .settings: return "gearshape.fill"
         }
     }
 }
@@ -294,22 +447,5 @@ struct TasksPopoverContent: View {
             )
         }
         .buttonStyle(.plain)
-    }
-}
-
-// MARK: - 历史 Popover：带小标题
-
-struct HistoryPopoverContent: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("历史")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 14)
-                .padding(.top, 10)
-                .padding(.bottom, 4)
-
-            HistoryView()
-        }
     }
 }

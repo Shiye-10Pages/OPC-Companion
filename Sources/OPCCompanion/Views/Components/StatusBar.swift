@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// 顶部状态条：左侧日期标题 + 右侧 4 个 popover 触发图标（任务 / 收件箱 / 历史 / 设置）。
+/// 顶部状态条：左侧日期标题 + 右侧 popover 触发图标（任务 / 收件箱）。
+/// 历史 / 设置 已升为顶部胶囊 Tab，不再走 popover。
 /// 设计哲学：消息流专注纯粹对话，其他一切通过图标召唤为 popover。
 struct StatusBar: View {
     @EnvironmentObject var state: AppState
@@ -40,14 +41,8 @@ struct StatusBar: View {
                     isActive: state.selectedTab == .inbox,
                     action: { toggle(.inbox) }
                 )
-                StatusBarIcon(
-                    tab: .history,
-                    systemImage: AppTab.history.icon,
-                    badgeCount: 0,
-                    isActive: state.selectedTab == .history,
-                    action: { toggle(.history) }
-                )
-                // 设置图标已移除；输入框敲 /设置 召唤
+                // 历史 / 设置 已升为顶部胶囊 Tab，不再放在 StatusBar
+                // 设置入口：输入框敲 /设置 召唤，或点顶部胶囊
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 8)

@@ -1004,7 +1004,8 @@ struct InputBar: View {
                 }
 
                 HStack(spacing: 8) {
-                    TextField(isNoteMode ? "记一下..." : "发送消息（/ 开头存为随手记）", text: $text)
+                    TextField(isNoteMode ? "记一下..." : "发送消息（/ 开头存为随手记）", text: $text, axis: .vertical)
+                        .lineLimit(1...6)
                         .textFieldStyle(.plain)
                         .focused(isFocused)
                         .font(theme.bodyFont)
@@ -1047,6 +1048,23 @@ struct InputBar: View {
                         .onKeyPress(.escape) {
                             if showSlashMenu { text = ""; return .handled }
                             return .ignored
+                        }
+                        // axis: .vertical 后回车默认换行，这里拦截：单独回车 = 发送 / 执行命令；
+                        // Shift+Enter 让系统插入换行（return .ignored）
+                        .onKeyPress(keys: [.return], phases: .down) { press in
+                            if press.modifiers.contains(.shift) { return .ignored }
+                            if showSlashMenu {
+                                let idx = min(slashSelectedIndex, slashCommands.count - 1)
+                                if idx >= 0 && idx < slashCommands.count {
+                                    executeSlashCommand(slashCommands[idx])
+                                    return .handled
+                                }
+                            }
+                            if !isLoading && !text.isEmpty {
+                                onSend()
+                                return .handled
+                            }
+                            return .handled
                         }
 
                 if isNoteMode {
