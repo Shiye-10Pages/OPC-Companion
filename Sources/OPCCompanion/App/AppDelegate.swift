@@ -306,7 +306,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         dlog("[DIAG] Creating NSPanel...")
         // .fullSizeContentView 单独使用（不加 .titled 避免启动卡死，不加 .nonactivatingPanel 保证中文输入法可用）
         let panel = HUDPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 760, height: 520),
+            contentRect: NSRect(x: 0, y: 0, width: 760, height: 620),
             styleMask: [.fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -327,7 +327,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         panel.isReleasedWhenClosed = false
         panel.delegate = self
 
-        let effectView = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: 760, height: 520))
+        let effectView = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: 760, height: 620))
         effectView.material = .popover          // 比 hudWindow 更轻透，接近 Liquid Glass
         effectView.blendingMode = .behindWindow
         effectView.state = .active

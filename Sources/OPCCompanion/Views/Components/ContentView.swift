@@ -22,13 +22,15 @@ struct ContentView: View {
             }
 
             MainTabView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .opacity(streamVisible ? 1 : 0)
                 .offset(y: streamVisible ? 0 : 8)
 
             PanelWatermark()
                 .opacity(bgVisible ? 0.9 : 0)
         }
-        .frame(width: 760, height: 520)
+        .frame(width: 760, height: 620)
+        .clipShape(RoundedRectangle(cornerRadius: themeProvider.current.panelCornerRadius))
         .environment(\.theme, themeProvider.current)
         .overlay(alignment: .top) {
             if let banner = state.banner {
@@ -80,7 +82,7 @@ private struct PanelWatermark: View {
                     Text("OPC · SOUL · ONLINE")
                 }
                 Spacer()
-                Text("SN · 760x520 · \(state.config.themeID.uppercased())")
+                Text("SN · 760x620 · \(state.config.themeID.uppercased())")
             }
             .font(.system(size: 9, design: .monospaced))
             .foregroundStyle(theme.textTertiary)
