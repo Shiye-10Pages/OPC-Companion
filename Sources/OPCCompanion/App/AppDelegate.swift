@@ -358,50 +358,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         dlog("[DIAG] setupHotkey: START")
 
         // 全局热键用 Carbon（RegisterEventHotKey），不需要辅助功能权限
-        let optionMod = UInt32(optionKey)
-
-        // Option + Space (keyCode 49)：短按 toggle 面板，长按 ≥500ms 语音模式
-        let spaceID = CarbonHotkeyManager.shared.register(
-            keyCode: 49, modifiers: optionMod,
-            onPress: { [weak self] in
-                OPCLogger.shared.log(.info, "hotkey", "[HOTKEY-DIAG] onPress closure fired for Opt+Space, self=\(self == nil ? "nil" : "alive")")
-                self?.handleOptSpacePress()
-            },
-            onRelease: { [weak self] in
-                OPCLogger.shared.log(.info, "hotkey", "[HOTKEY-DIAG] onRelease closure fired for Opt+Space, self=\(self == nil ? "nil" : "alive")")
-                self?.handleOptSpaceRelease()
-            }
-        )
-        if spaceID == nil {
-            OPCLogger.shared.log(.error, "hotkey", "Opt+Space (keyCode 49) 注册失败 — 该组合可能已被系统占用（macOS 默认: 输入法切换 / Spotlight 候选）。请到「系统设置 → 键盘 → 键盘快捷键 → 输入源」检查是否启用了 Option+Space。")
-        }
-
-        // Option + ` (keyCode 50)：切换快捷输入条
-        let backtickID = CarbonHotkeyManager.shared.register(
-            keyCode: 50, modifiers: optionMod,
-            onPress: { [weak self] in
-                OPCLogger.shared.log(.info, "hotkey", "[HOTKEY-DIAG] onPress closure fired for Opt+Backtick, self=\(self == nil ? "nil" : "alive")")
-                self?.handleOptBacktickPress()
-            }
-        )
-        if backtickID == nil {
-            OPCLogger.shared.log(.error, "hotkey", "Opt+` (keyCode 50) 注册失败 — 该组合可能已被其他 App 占用")
-        }
-        dlog("[DIAG] Carbon hotkeys registered spaceID=\(String(describing: spaceID)) backtickID=\(String(describing: backtickID))")
-        OPCLogger.shared.log(.info, "hotkey", CarbonHotkeyManager.shared.currentRegistrationsSnapshot())
-
-        // 6 秒后检查 Carbon callback 是否真的被派发过；若否，记一条 ERROR 让 Notion Error Logs 收到提示
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 6_000_000_000)
-            guard self != nil else { return }
-            let snap = CarbonHotkeyManager.shared.currentRegistrationsSnapshot()
-            if CarbonHotkeyManager.shared.callbackEverFired {
-                OPCLogger.shared.log(.info, "hotkey", "[HOTKEY-DIAG] 6s self-check: callback HAS fired at least once. \(snap)")
-            } else {
-                // 这只在 6s 内用户没按过任何热键时也会出现，所以仅作为"提示"，不能直接断定坏了
-                OPCLogger.shared.log(.warn, "hotkey", "[HOTKEY-DIAG] 6s self-check: Carbon callback has NOT fired yet. 如果你已经按过 Option+Space/` 但日志没看到 [CB] entry → 说明 Carbon 事件被系统抢占（最常见：输入法切换占用 Option+Space）或 RegisterEventHotKey 失败。\(snap)")
-            }
-        }
+        registerCarbonHotkeys()
 
         // Local monitor 保留：Esc 关面板 / Cmd+D 关面板 / Cmd+=/-/0 微调字号（只在 app 内生效）
         localHotkeyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { event in
@@ -448,6 +405,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         dlog("[DIAG] setupHotkey: END")
     }
 
+    /// 设置页「重新注册热键」按钮调用：先全量注销 Carbon 热键，再重新注册（不动 local monitor）。
+    func reregisterHotkeys() {
+        OPCLogger.shared.log(.info, "hotkey", "[reregister] manual trigger - unregistering all carbon hotkeys and reinstalling")
+        CarbonHotkeyManager.shared.unregisterAll()
+        HotkeyHealthMonitor.shared.stop()
+        registerCarbonHotkeys()
+    }
+
+    private func registerCarbonHotkeys() {
+        let optionMod = UInt32(optionKey)
+
+        let spaceID = CarbonHotkeyManager.shared.register(
+            keyCode: 49, modifiers: optionMod,
+            onPress: { [weak self] in self?.handleOptSpacePress() },
+            onRelease: { [weak self] in self?.handleOptSpaceRelease() }
+        )
+        if spaceID == nil {
+            OPCLogger.shared.log(.error, "hotkey", "Opt+Space (keyCode 49) 注册失败 — 该组合可能已被系统占用（macOS 默认: 输入法切换 / Spotlight 候选）。请到「系统设置 → 键盘 → 键盘快捷键 → 输入源」检查是否启用了 Option+Space。")
+        }
+
+        let backtickID = CarbonHotkeyManager.shared.register(
+            keyCode: 50, modifiers: optionMod,
+            onPress: { [weak self] in self?.handleOptBacktickPress() }
+        )
+        if backtickID == nil {
+            OPCLogger.shared.log(.error, "hotkey", "Opt+` (keyCode 50) 注册失败 — 该组合可能已被其他 App 占用")
+        }
+        OPCLogger.shared.log(.info, "hotkey", CarbonHotkeyManager.shared.currentRegistrationsSnapshot())
+
+        HotkeyHealthMonitor.shared.start()
+    }
+
     // MARK: - Carbon hotkey handlers
 
     private func handleOptSpacePress() {
@@ -462,7 +451,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             try? await Task.sleep(nanoseconds: 500_000_000)
             guard let self = self, self.hotkeyDownTime != nil else { return }
             self.isLongPressTriggered = true
-            dlog("[HOTKEY] Long press detected!")
             if let p = self.panel, !p.isVisible { self.showPanel() }
             let authorized = await VoiceService.shared.requestAuthorization()
             if authorized && !VoiceService.shared.isRecording {
@@ -477,10 +465,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         hotkeyDownTime = nil
 
         if duration < 0.5 && !isLongPressTriggered {
-            dlog("[HOTKEY] Short press - toggle panel")
             togglePanel()
         } else if isLongPressTriggered {
-            dlog("[HOTKEY] Long press ended - stop voice")
             Task { @MainActor in
                 if VoiceService.shared.isRecording {
                     VoiceService.shared.stopRecording()
@@ -493,7 +479,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let now = Date()
         if now.timeIntervalSince(lastQuickCaptureAt) < 0.3 { return }
         lastQuickCaptureAt = now
-        dlog("[HOTKEY] Option+` - toggle quick capture")
         toggleQuickCapture()
     }
 
@@ -896,6 +881,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         scheduledCheckTimer = nil
         statusTimer?.invalidate()
         statusTimer = nil
+        HotkeyHealthMonitor.shared.stop()
         CarbonHotkeyManager.shared.unregisterAll()
         if let monitor = localHotkeyMonitor {
             NSEvent.removeMonitor(monitor)

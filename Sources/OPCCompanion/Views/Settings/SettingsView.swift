@@ -172,6 +172,10 @@ struct SettingsView: View {
                     }
                 }
 
+                Divider()
+
+                HotkeyDiagnosticsSection()
+
                 Spacer()
             }
             .padding(16)
@@ -587,6 +591,82 @@ struct StatusIndicator: View {
                 .frame(width: 8, height: 8)
             Text(name)
                 .font(.subheadline)
+        }
+    }
+}
+
+// MARK: - 全局热键诊断
+
+/// 全局热键诊断 section：实时显示 Carbon 热键状态 + Secure Input + 重新注册按钮 + 排查提示。
+struct HotkeyDiagnosticsSection: View {
+    /// 周期性刷新（每秒一次），让 secureInput / fired 状态实时更新
+    @State private var refreshTick = 0
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("全局热键诊断")
+                .font(.headline)
+
+            TimelineView(.periodic(from: .now, by: 1.0)) { _ in
+                VStack(alignment: .leading, spacing: 6) {
+                    let snap = CarbonHotkeyManager.shared.currentRegistrationsSnapshot()
+                    let fired = CarbonHotkeyManager.shared.callbackEverFired
+                    let secure = CarbonHotkeyManager.isSecureInputEnabled()
+
+                    statusRow(label: "Carbon 回调已触发过", ok: fired,
+                              detail: fired ? "热键链路工作正常" : "尚未收到 Carbon 派发的按键事件")
+                    statusRow(label: "Secure Input 是否启用", ok: !secure,
+                              detail: secure
+                                  ? "⚠️ 当前启用 — 第三方全局热键会被屏蔽，直到那个 App 失焦"
+                                  : "未启用 — 不会屏蔽全局热键")
+
+                    Text(snap)
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundColor(.secondary)
+                        .lineLimit(3)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                }
+            }
+
+            HStack(spacing: 8) {
+                Button("重新注册热键") {
+                    AppDelegate.shared.reregisterHotkeys()
+                    AppState.shared.showBanner("热键已重新注册", kind: .info, duration: 2.5)
+                }
+                .buttonStyle(.bordered)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("常见冲突源")
+                    .font(.caption.bold())
+                    .foregroundColor(.secondary)
+                Text("• Secure Event Input：终端 sudo / SSH、密码管理器、网页密码字段等会临时屏蔽全局热键，等那个 App 失焦后自动恢复。")
+                Text("• 输入法切换：「系统设置 → 键盘 → 键盘快捷键 → 输入源」里的 Option+Space 切换源会抢占。")
+                Text("• 启动器：Alfred / Raycast / Spotlight 可能占用相同组合。")
+                Text("排查路径：先看屏幕顶部 Banner 提示 → 再看上方诊断快照 → 最后 grep `[hotkey]` 日志。")
+            }
+            .font(.caption2)
+            .foregroundColor(.secondary)
+            .padding(8)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.secondary.opacity(0.06))
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func statusRow(label: String, ok: Bool, detail: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: ok ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                .foregroundColor(ok ? AppColors.statusOk : .orange)
+                .font(.system(size: 13))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(label).font(.system(size: 12, weight: .medium))
+                Text(detail).font(.caption2).foregroundColor(.secondary)
+            }
+            Spacer()
         }
     }
 }

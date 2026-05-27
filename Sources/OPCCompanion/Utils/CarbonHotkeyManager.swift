@@ -41,7 +41,6 @@ public final class CarbonHotkeyManager: @unchecked Sendable {
     private(set) var callbackEverFired: Bool = false
 
     private init() {
-        diag("[CarbonHotkeyManager] init - installing event handler")
         installEventHandler()
     }
 
@@ -57,7 +56,6 @@ public final class CarbonHotkeyManager: @unchecked Sendable {
     ) -> UInt32? {
         let id = nextID
         nextID += 1
-        diag("[register] enter id=\(id) keyCode=\(keyCode) modifiers=0x\(String(modifiers, radix: 16)) handlerInstalled=\(handlerInstalled)")
         let hotKeyID = EventHotKeyID(signature: Self.signature, id: id)
         var ref: EventHotKeyRef?
         let status = RegisterEventHotKey(
@@ -100,7 +98,6 @@ public final class CarbonHotkeyManager: @unchecked Sendable {
     public func unregister(id: UInt32) {
         guard let slot = slots.removeValue(forKey: id) else { return }
         UnregisterEventHotKey(slot.hotKeyRef)
-        diag("[unregister] id=\(id)")
     }
 
     public func unregisterAll() {
@@ -108,13 +105,19 @@ public final class CarbonHotkeyManager: @unchecked Sendable {
             UnregisterEventHotKey(slot.hotKeyRef)
         }
         slots.removeAll()
-        diag("[unregisterAll] cleared")
     }
 
     /// 调试快照：当前已注册的热键 id / keyCode / modifiers 列表
     public func currentRegistrationsSnapshot() -> String {
         let entries = slots.values.map { "id=\($0.id) keyCode=\($0.keyCode) mod=0x\(String($0.modifiers, radix: 16))" }
-        return "[snapshot] handlerInstalled=\(handlerInstalled) handlerInstallStatus=\(handlerInstallStatus) callbackEverFired=\(callbackEverFired) count=\(slots.count) entries=[\(entries.joined(separator: "; "))]"
+        return "[snapshot] handlerInstalled=\(handlerInstalled) handlerInstallStatus=\(handlerInstallStatus) callbackEverFired=\(callbackEverFired) secureInput=\(Self.isSecureInputEnabled()) count=\(slots.count) entries=[\(entries.joined(separator: "; "))]"
+    }
+
+    /// 实时探测 macOS Secure Event Input 状态。
+    /// 某个 App（终端 sudo/SSH、密码管理器、网页密码字段等）启用 Secure Input 时，
+    /// 第三方全局热键会被屏蔽，直到该进程失焦才自动解除。这与"几分钟后突然好用"现象吻合。
+    public static func isSecureInputEnabled() -> Bool {
+        IsSecureEventInputEnabled()
     }
 
     // MARK: - Internal
@@ -152,8 +155,16 @@ public final class CarbonHotkeyManager: @unchecked Sendable {
 
                 let kind = GetEventKind(event)
                 let manager = Unmanaged<CarbonHotkeyManager>.fromOpaque(userData).takeUnretainedValue()
+                let wasFiredBefore = manager.callbackEverFired
                 manager.callbackEverFired = true
                 OPCLogger.shared.log(.info, "hotkey", "[CB] entry id=\(hotKeyID.id) kind=\(kind == UInt32(kEventHotKeyPressed) ? "PRESSED" : (kind == UInt32(kEventHotKeyReleased) ? "RELEASED" : "kind=\(kind)"))")
+
+                if !wasFiredBefore {
+                    // 首次 fire → 通知 HotkeyHealthMonitor 清掉警告 banner
+                    DispatchQueue.main.async {
+                        HotkeyHealthMonitor.shared.notifyCallbackFired()
+                    }
+                }
 
                 DispatchQueue.main.async {
                     guard let slot = manager.slots[hotKeyID.id] else {
@@ -161,10 +172,8 @@ public final class CarbonHotkeyManager: @unchecked Sendable {
                         return
                     }
                     if kind == UInt32(kEventHotKeyPressed) {
-                        OPCLogger.shared.log(.info, "hotkey", "[CB] invoke onPress id=\(slot.id) keyCode=\(slot.keyCode)")
                         slot.onPress()
                     } else if kind == UInt32(kEventHotKeyReleased) {
-                        OPCLogger.shared.log(.info, "hotkey", "[CB] invoke onRelease id=\(slot.id) keyCode=\(slot.keyCode)")
                         slot.onRelease()
                     }
                 }
@@ -178,7 +187,6 @@ public final class CarbonHotkeyManager: @unchecked Sendable {
         handlerInstallStatus = status
         if status == noErr {
             handlerInstalled = true
-            diag("[installEventHandler] OK eventHandler=\(String(describing: eventHandler))")
         } else {
             handlerInstalled = false
             OPCLogger.shared.log(
