@@ -31,6 +31,10 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 20) {
                 setupChecklist
 
+                ThemeSection()
+
+                Divider()
+
                 // 系统提示词
                 VStack(alignment: .leading, spacing: 8) {
                     Text("系统提示词")

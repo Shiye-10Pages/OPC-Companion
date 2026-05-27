@@ -7,6 +7,7 @@ public struct AppConfig: Codable, Sendable {
     public var voice: VoiceConfig
     public var apiConfig: APIConfig
     public var proxyConfig: ProxyConfig
+    public var themeID: String
 
     public init(
         hotkey: String = "option+space",
@@ -14,7 +15,8 @@ public struct AppConfig: Codable, Sendable {
         notionDatabaseIds: NotionDatabaseIds = NotionDatabaseIds(),
         voice: VoiceConfig = VoiceConfig(),
         apiConfig: APIConfig = APIConfig(),
-        proxyConfig: ProxyConfig = ProxyConfig()
+        proxyConfig: ProxyConfig = ProxyConfig(),
+        themeID: String = "aurora"
     ) {
         self.hotkey = hotkey
         self.systemPromptFile = systemPromptFile
@@ -22,6 +24,24 @@ public struct AppConfig: Codable, Sendable {
         self.voice = voice
         self.apiConfig = apiConfig
         self.proxyConfig = proxyConfig
+        self.themeID = themeID
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.hotkey = try c.decodeIfPresent(String.self, forKey: .hotkey) ?? "option+space"
+        self.systemPromptFile = try c.decodeIfPresent(String.self, forKey: .systemPromptFile)
+            ?? "~/.opc-companion/system-prompt.txt"
+        self.notionDatabaseIds = try c.decodeIfPresent(NotionDatabaseIds.self, forKey: .notionDatabaseIds)
+            ?? NotionDatabaseIds()
+        self.voice = try c.decodeIfPresent(VoiceConfig.self, forKey: .voice) ?? VoiceConfig()
+        self.apiConfig = try c.decodeIfPresent(APIConfig.self, forKey: .apiConfig) ?? APIConfig()
+        self.proxyConfig = try c.decodeIfPresent(ProxyConfig.self, forKey: .proxyConfig) ?? ProxyConfig()
+        self.themeID = try c.decodeIfPresent(String.self, forKey: .themeID) ?? "aurora"
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case hotkey, systemPromptFile, notionDatabaseIds, voice, apiConfig, proxyConfig, themeID
     }
 }
 

@@ -112,7 +112,7 @@ struct ChatView: View {
                 Divider()
 
                 // 输入区
-                InputBar(text: $inputText, isLoading: state.isLoading) {
+                InputBar(text: $inputText, isLoading: state.isLoading, isFocused: $isInputFocused) {
                     sendMessage()
                 }
             }
@@ -134,7 +134,12 @@ struct ChatView: View {
             }
             .animation(AppAnimations.quick, value: notionConfirm.showConfirmation)
             .onAppear {
-                isInputFocused = true
+                focusInputSoon()
+            }
+            .onChange(of: state.isPanelVisible) { _, isVisible in
+                if isVisible {
+                    focusInputSoon()
+                }
             }
         }
     }
@@ -222,7 +227,7 @@ struct ChatView: View {
                 // 不 return，继续走下方 AI 发送路径
             } else {
                 inputText = ""
-                isInputFocused = true
+                focusInputSoon()
                 guard !body.isEmpty else { return }
 
                 // 命令识别：单关键字（中英文均可）
@@ -241,7 +246,7 @@ struct ChatView: View {
 
         let userMessage = inputText
         inputText = ""
-        isInputFocused = true
+        focusInputSoon()
 
         // 添加用户消息
         state.appendMessage(Message(role: .user, content: userMessage, inputMode: inputMode))
@@ -265,10 +270,11 @@ struct ChatView: View {
             defer {
                 state.persistMessage(id: msgID)
                 state.isLoading = false
+                focusInputSoon()
             }
 
             do {
-                let systemPrompt = state.systemPrompt
+                let systemPrompt = ThemeProvider.shared.composedPrompt(base: state.systemPrompt)
                 let response = try await ChatEngine.shared.sendMessage(
                     userMessage,
                     systemPrompt: systemPrompt,
@@ -311,6 +317,12 @@ struct ChatView: View {
                     }
                 }
             }
+        }
+    }
+
+    private func focusInputSoon() {
+        DispatchQueue.main.async {
+            isInputFocused = true
         }
     }
 }
@@ -706,6 +718,7 @@ struct TaskCard: View {
 struct MessageBubble: View {
     let message: Message
     @EnvironmentObject var state: AppState
+    @Environment(\.theme) private var theme
     @State private var hovering = false
 
     private var isUser: Bool {
@@ -746,13 +759,17 @@ struct MessageBubble: View {
                 // 气泡正文：思考中跳过，thinking-only 跳过，有 main 才渲染
                 if let displayText = bubbleDisplayText(parsed: parsed), !displayText.isEmpty {
                     MarkdownText(text: displayText)
-                    .font(.system(size: CGFloat(15) * state.fontScale))
+                    .font(theme.bodyFont)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
-                    .foregroundStyle(isUser ? .white : .primary)
+                    .foregroundStyle(isUser ? .white : theme.textPrimary)
                     .background(
-                        RoundedRectangle(cornerRadius: AppCornerRadius.bubble, style: .continuous)
-                            .fill(isUser ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.ultraThinMaterial))
+                        RoundedRectangle(cornerRadius: theme.bubbleCornerRadius, style: .continuous)
+                            .fill(isUser ? theme.bubbleUserStyle : theme.bubbleAssistantStyle)
+                    )
+                    .auroraEdgeGlow(
+                        active: isUser && theme.id == .aurora,
+                        cornerRadius: theme.bubbleCornerRadius
                     )
                     .shadow(color: AppShadows.bubble.color, radius: AppShadows.bubble.radius, x: AppShadows.bubble.x, y: AppShadows.bubble.y)
                 }
@@ -763,8 +780,8 @@ struct MessageBubble: View {
                             .font(.caption)
                     }
                     Text(formatTime(message.timestamp))
-                        .font(AppTypography.timestamp)
-                        .foregroundColor(.secondary.opacity(0.7))
+                        .font(theme.timestampFont)
+                        .foregroundColor(theme.textTertiary)
                 }
             }
 
@@ -877,9 +894,9 @@ struct MessageBubble: View {
     private var bubbleBackground: some ShapeStyle {
         switch message.role {
         case .user:
-            return AnyShapeStyle(Color.accentColor)
+            return theme.bubbleUserStyle
         case .assistant:
-            return AnyShapeStyle(AppColors.assistantBubble)
+            return theme.bubbleAssistantStyle
         case .system:
             return AnyShapeStyle(AppColors.systemBubble)
         }
@@ -893,44 +910,55 @@ struct MessageBubble: View {
 }
 
 struct TypingIndicator: View {
+    @Environment(\.theme) private var theme
     @State private var animating = false
 
     var body: some View {
-        HStack {
-            HStack(spacing: 5) {
-                ForEach(0..<3) { index in
-                    Circle()
-                        .fill(Color.secondary)
-                        .frame(width: 6, height: 6)
-                        .scaleEffect(animating ? 1.2 : 0.8)
-                        .animation(
-                            .easeInOut(duration: 0.4)
-                            .repeatForever()
-                            .delay(Double(index) * 0.15),
-                            value: animating
-                        )
+        Group {
+            if theme.id == .aurora {
+                HStack {
+                    AuroraShimmerTyping()
+                    Spacer()
                 }
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background(AppColors.assistantBubble)
-            .cornerRadius(AppCornerRadius.bubble)
-            .shadow(color: AppShadows.bubble.color, radius: AppShadows.bubble.radius, x: AppShadows.bubble.x, y: AppShadows.bubble.y)
+            } else {
+                HStack {
+                    HStack(spacing: 5) {
+                        ForEach(0..<3) { index in
+                            Circle()
+                                .fill(theme.textSecondary)
+                                .frame(width: 6, height: 6)
+                                .scaleEffect(animating ? 1.2 : 0.8)
+                                .animation(
+                                    .easeInOut(duration: 0.4)
+                                    .repeatForever()
+                                    .delay(Double(index) * 0.15),
+                                    value: animating
+                                )
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(theme.bubbleAssistantStyle)
+                    .cornerRadius(theme.bubbleCornerRadius)
+                    .shadow(color: AppShadows.bubble.color, radius: AppShadows.bubble.radius, x: AppShadows.bubble.x, y: AppShadows.bubble.y)
 
-            Spacer(minLength: 60)
+                    Spacer(minLength: 60)
+                }
+                .onAppear { animating = true }
+            }
         }
         .padding(.horizontal, 12)
-        .onAppear { animating = true }
     }
 }
 
 struct InputBar: View {
     @Binding var text: String
     let isLoading: Bool
+    let isFocused: FocusState<Bool>.Binding
     let onSend: () -> Void
     @EnvironmentObject var state: AppState
+    @Environment(\.theme) private var theme
     @ObservedObject private var voice = VoiceService.shared
-    @FocusState private var isFocused: Bool
     @State private var micPulse = false
     @State private var slashSelectedIndex = 0
     /// 选中一条命令后立即收起菜单；删空 "/" 再重新触发会自动恢复。
@@ -957,7 +985,7 @@ struct InputBar: View {
 
     private var borderColor: Color {
         if isNoteMode { return .yellow }
-        if isFocused { return AppColors.primary }
+        if isFocused.wrappedValue { return theme.accent }
         return .clear
     }
 
@@ -978,8 +1006,9 @@ struct InputBar: View {
                 HStack(spacing: 8) {
                     TextField(isNoteMode ? "记一下..." : "发送消息（/ 开头存为随手记）", text: $text)
                         .textFieldStyle(.plain)
-                        .focused($isFocused)
-                        .font(.system(size: CGFloat(15) * state.fontScale))
+                        .focused(isFocused)
+                        .font(theme.bodyFont)
+                        .foregroundStyle(theme.textPrimary)
                         .onSubmit {
                             if showSlashMenu {
                                 let idx = min(slashSelectedIndex, slashCommands.count - 1)
@@ -1028,7 +1057,7 @@ struct InputBar: View {
                 }
 
                 // 语音输入状态指示
-                if VoiceService.shared.isRecording {
+                if voice.isRecording {
                     HStack(spacing: 4) {
                         Circle()
                             .fill(.red)
@@ -1049,6 +1078,15 @@ struct InputBar: View {
             .overlay(
                 RoundedRectangle(cornerRadius: AppCornerRadius.input)
                     .stroke(borderColor, lineWidth: 1.5)
+            )
+            .auroraFocusRings(
+                active: isFocused.wrappedValue && theme.id == .aurora,
+                cornerRadius: AppCornerRadius.input,
+                accent: theme.accent
+            )
+            .shimmerBorder(
+                active: voice.isRecording,
+                cornerRadius: AppCornerRadius.input
             )
             } // closes VStack(spacing: 0) — 命令补全菜单 + 输入框容器
 
@@ -1094,6 +1132,9 @@ struct InputBar: View {
                 .fill(.ultraThinMaterial)
                 .overlay(Divider().opacity(0.5), alignment: .top)
         )
+        .onAppear {
+            isFocused.wrappedValue = true
+        }
     }
 
     private func executeSlashCommand(_ cmd: SlashCommand) {
@@ -1108,19 +1149,19 @@ struct InputBar: View {
     }
 
     private func toggleRecording() {
-        if VoiceService.shared.isRecording {
-            VoiceService.shared.stopRecording()
-            if !VoiceService.shared.transcript.isEmpty {
-                text = VoiceService.shared.transcript
+        if voice.isRecording {
+            voice.stopRecording()
+            if !voice.transcript.isEmpty {
+                text = voice.transcript
             } else {
                 state.showBanner("未识别到语音，请重试", kind: .info)
             }
         } else {
             Task {
-                let authorized = await VoiceService.shared.requestAuthorization()
+                let authorized = await voice.requestAuthorization()
                 if authorized {
                     do {
-                        try VoiceService.shared.startRecording()
+                        try voice.startRecording()
                     } catch {
                         state.showBanner("语音识别失败：\(error.localizedDescription)", kind: .error, duration: 5.0)
                     }

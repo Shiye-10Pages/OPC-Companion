@@ -25,3 +25,6 @@ test_coach.py
 
 # Logs
 *.log
+
+# Playwright MCP 临时快照
+.playwright-mcp/

@@ -21,8 +21,14 @@ cp "$BUILD_DIR/$APP_NAME" "$APP_BUNDLE/Contents/MacOS/"
 # 复制 Info.plist
 cp "Resources/Info.plist" "$APP_BUNDLE/Contents/"
 
+echo "==> 验证 bundle..."
+plutil -lint "$APP_BUNDLE/Contents/Info.plist"
+test -x "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
+
 # Ad-hoc 签名
-codesign -s - --force --deep "$APP_BUNDLE" 2>/dev/null || true
+echo "==> 签名并校验..."
+codesign -s - --force --deep "$APP_BUNDLE"
+codesign --verify --deep --strict "$APP_BUNDLE"
 
 echo "==> 完成！"
 echo ""

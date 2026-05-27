@@ -113,7 +113,8 @@ final class MemoryServiceTests: XCTestCase {
         service.appendToToday(.conversation, entry: "昨天聊了记忆架构", now: yesterday)
 
         let snapshot = service.composeSnapshot()
-        XCTAssertTrue(snapshot.contains("## 昨日要点"))
+        XCTAssertTrue(snapshot.contains("## 近 \(MemoryService.daysToInject) 天要点"))
+        XCTAssertTrue(snapshot.contains("### 昨日"))
         XCTAssertTrue(snapshot.contains("昨天聊了记忆架构"))
     }
 

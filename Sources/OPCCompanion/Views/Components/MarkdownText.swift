@@ -3,8 +3,74 @@ import SwiftUI
 /// 把 markdown 文本按段落分块渲染，支持加粗/斜体/链接/代码块/列表/标题。
 struct MarkdownText: View {
     let text: String
+    @Environment(\.theme) private var theme
 
     var body: some View {
+        if shouldUseStoaRenderer {
+            stoaContent
+        } else {
+            plainContent
+        }
+    }
+
+    private var shouldUseStoaRenderer: Bool {
+        theme.id == .stoa && containsStoaTags
+    }
+
+    private var containsStoaTags: Bool {
+        let tags = ["<module>", "<dichotomy>", "<factjudge>", "<ritual>", "<tempo", "<virtues>", "<quote"]
+        return tags.contains { text.contains($0) }
+    }
+
+    private var stoaContent: some View {
+        let segments = StoaParser.parse(text)
+        return VStack(alignment: .leading, spacing: 14) {
+            ForEach(Array(segments.enumerated()), id: \.offset) { _, seg in
+                segmentView(seg)
+            }
+        }
+        .textSelection(.enabled)
+    }
+
+    @ViewBuilder
+    private func segmentView(_ seg: StoaSegment) -> some View {
+        switch seg {
+        case .text(let s):
+            Text(stoaAttributed(s))
+                .font(theme.bodyFont)
+                .foregroundStyle(theme.textPrimary)
+                .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
+        case .moduleTag(let s):
+            StoaModuleTag(text: s)
+        case .dichotomy(let inn, let out):
+            StoaDichotomyCard(inn: inn, out: out)
+        case .factJudge(let f, let j, let a):
+            StoaFactJudgeCard(fact: f, judge: j, action: a)
+        case .ritual(let items):
+            StoaRitualCard(items: items)
+                .padding(.top, 4)
+        case .tempo(let pct, let opts):
+            StoaTempoCard(energyPct: pct, options: opts)
+        case .virtues(let rows):
+            StoaVirtuesCard(rows: rows)
+        case .quote(let t, let a):
+            StoaQuoteTail(text: t, author: a)
+        }
+    }
+
+    private func stoaAttributed(_ raw: String) -> AttributedString {
+        var attr = AttributedString(raw)
+        for keyword in ["既然", "如此，则", "如此则", "因此"] {
+            if let range = attr.range(of: keyword) {
+                attr[range].foregroundColor = theme.ink
+                attr[range].font = theme.bodyFont.weight(.medium)
+            }
+        }
+        return attr
+    }
+
+    private var plainContent: some View {
         VStack(alignment: .leading, spacing: 6) {
             ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
                 renderBlock(block)
