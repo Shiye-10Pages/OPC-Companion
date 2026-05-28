@@ -69,8 +69,11 @@ struct ContentView: View {
     private func syncPanelCornerRadius() {
         let r = themeProvider.current.panelCornerRadius
         guard let effectView = AppDelegate.shared?.panelEffectView else { return }
+        // 1. effectView 的 maskImage（关键：material 的 backdrop 只听这个）
+        effectView.maskImage = AppDelegate.makeRoundedMaskImage(cornerRadius: r)
+        // 2. effectView layer cornerRadius（普通 layer 内容裁切）
         effectView.layer?.cornerRadius = r
-        // 同步 shadowWrapper（effectView.superview）的 shadowPath，让阴影跟着圆角变
+        // 3. shadowWrapper 的 shadowPath（阴影跟着圆角变）
         if let wrapper = effectView.superview, let wlayer = wrapper.layer {
             wlayer.shadowPath = CGPath(
                 roundedRect: wrapper.bounds,

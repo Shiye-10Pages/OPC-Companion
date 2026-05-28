@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct MainTabView: View {
     @EnvironmentObject var state: AppState
@@ -15,11 +16,15 @@ struct MainTabView: View {
         ZStack(alignment: .top) {
             VStack(spacing: 0) {
                 // —— 顶部胶囊导航（始终常驻）——
+                // 用 background 放 WindowDragHandle：胶囊本身可点击（hit-test 优先命中
+                // 前景按钮），胶囊周围的 padding 区域 hit 到 background → 启动拖窗。
                 NewTabBar(visibleTab: visibleTab, tabs: Self.visibleTabs) { tab in
                     selectVisibleTab(tab)
                 }
                 .padding(.top, 12)
                 .padding(.bottom, 14)   // 拉开与 StatusBar 的呼吸距离，避免双重背景硬边
+                .frame(maxWidth: .infinity)
+                .background(WindowDragHandle())
 
                 // —— 内容区：按可见 tab 切换 ——
                 Group {
@@ -451,4 +456,17 @@ struct TasksPopoverContent: View {
         }
         .buttonStyle(.plain)
     }
+}
+
+// MARK: - 窗口拖动手柄（NSView mouseDownCanMoveWindow=true）
+// 限定 panel 仅在被这个 view 覆盖的区域可拖。其它区域 panel.isMovableByWindowBackground=false。
+
+struct WindowDragHandle: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { DragHandleNSView() }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+}
+
+private final class DragHandleNSView: NSView {
+    override var mouseDownCanMoveWindow: Bool { true }
+    // 不阻挡子 view（SwiftUI hostingView 的按钮等）的事件 — 让 hit-test 默认行为决定
 }

@@ -86,6 +86,21 @@ final class QuickCapturePanel: NSPanel {
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     static var shared: AppDelegate!
 
+    /// 给 NSVisualEffectView 用的圆角 mask image。capInsets 让小图可拉伸到任意尺寸。
+    /// material 的 backdrop blur 必须用 maskImage 才能正确按圆角裁切。
+    static func makeRoundedMaskImage(cornerRadius: CGFloat) -> NSImage {
+        let edge = max(cornerRadius * 2 + 1, 3)
+        let img = NSImage(size: NSSize(width: edge, height: edge), flipped: false) { rect in
+            NSColor.black.setFill()
+            NSBezierPath(roundedRect: rect, xRadius: cornerRadius, yRadius: cornerRadius).fill()
+            return true
+        }
+        img.capInsets = NSEdgeInsets(top: cornerRadius, left: cornerRadius,
+                                     bottom: cornerRadius, right: cornerRadius)
+        img.resizingMode = .stretch
+        return img
+    }
+
     var panel: NSPanel?
     /// 主面板的 visualEffectView 引用，便于主题切换时同步 layer.cornerRadius
     weak var panelEffectView: NSVisualEffectView?
@@ -318,7 +333,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         dlog("[DIAG] Configuring panel properties...")
         panel.titlebarAppearsTransparent = true
         panel.titleVisibility = .hidden
-        panel.isMovableByWindowBackground = true
+        // 关闭整个 panel 背景可拖。改由 SwiftUI 顶部胶囊区域的 WindowDragHandle
+        // 提供精确热区（mouseDownCanMoveWindow=true），其它区域不响应拖动。
+        panel.isMovableByWindowBackground = false
         panel.level = .floating
         // 不加入所有 Space：用户切换到其他 Space 时面板应消失而不是闪现
         panel.collectionBehavior = [.fullScreenAuxiliary]
@@ -357,6 +374,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         effectView.state = .active
         effectView.wantsLayer = true
         // 初始圆角 = 当前主题 panelCornerRadius；后续主题切换会通过 syncPanelCornerRadius 跟随
+        // 关键：NSVisualEffectView 的 material 是系统级 backdrop blur，layer.cornerRadius
+        // 只能裁普通 layer 内容裁不了 material；必须用 maskImage 才能让 material 真正按
+        // 圆角裁切。否则圆角外一圈仍渲染 material，视觉上呈现"圆角外的浅色直角边"。
+        effectView.maskImage = Self.makeRoundedMaskImage(cornerRadius: initialRadius)
         effectView.layer?.cornerRadius = initialRadius
         effectView.layer?.masksToBounds = true
         effectView.autoresizingMask = [.width, .height]
