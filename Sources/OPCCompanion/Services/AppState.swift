@@ -612,6 +612,7 @@ public final class AppState: ObservableObject {
             }
         }
 
+        rewriteTodayMessages()
         showBanner("已转随手记", kind: .success)
         MemoryService.shared.appendToToday(.notes, entry: content)
     }
@@ -1182,6 +1183,27 @@ public final class AppState: ObservableObject {
         guard let msg = messages.first(where: { $0.id == id }) else { return }
         guard msg.role != .system, !msg.content.isEmpty else { return }
         appendMessageLine(msg)
+    }
+
+    private func rewriteTodayMessages() {
+        guard !Self.isRunningTests else { return }
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        let dateString = dateFormatter.string(from: Date())
+        let url = Self.dataDirectory
+            .appendingPathComponent("conversations")
+            .appendingPathComponent("\(dateString).jsonl")
+        let rows = messages.filter { msg in
+            msg.role != .system && !(msg.role == .assistant && msg.content.isEmpty)
+        }
+        let lines = rows.compactMap { msg -> String? in
+            guard let data = try? JSONEncoder().encode(msg) else { return nil }
+            return String(data: data, encoding: .utf8)
+        }.joined(separator: "\n")
+        let body = lines.isEmpty ? "" : lines + "\n"
+        let fileManager = FileManager.default
+        try? fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? body.write(to: url, atomically: true, encoding: .utf8)
     }
 
     private func saveTodayMessages() {

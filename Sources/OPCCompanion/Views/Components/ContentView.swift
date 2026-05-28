@@ -73,10 +73,9 @@ struct ContentView: View {
         effectView.maskImage = AppDelegate.makeRoundedMaskImage(cornerRadius: r)
         // 2. effectView layer cornerRadius（普通 layer 内容裁切）
         effectView.layer?.cornerRadius = r
-        // 3. hostingView 自身 layer 裁切：SwiftUI 的 .clipShape 管不到 NSHostingView
-        //    的 NSView backing，必须在 AppKit 这层显式按 cornerRadius 裁。
-        //    否则切到大圆角主题（如 Aurora 26pt）会在圆角外露出 hostingView
-        //    的矩形 layer 背景 → "圆角外的浅色直角边"。
+        // 3. hostingView 外层普通 NSView clip container：SwiftUI 的 .clipShape
+        //    管不到 NSHostingView 这层 AppKit 边界，但也不能直接裁 NSHostingView
+        //    本体，否则有触发 SwiftUI layout 循环的风险。
         if let host = AppDelegate.shared?.panelHostingLayerView {
             host.layer?.cornerRadius = r
             host.layer?.masksToBounds = true

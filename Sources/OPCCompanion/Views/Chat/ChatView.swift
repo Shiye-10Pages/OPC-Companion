@@ -740,21 +740,8 @@ struct MessageBubble: View {
         message.content.contains("<think>") && !message.content.contains("</think>")
     }
 
-    /// Stoa 主题下，如果 LLM 输出了 `<module>` 但前面有 reasoning preamble，
-    /// 把 module 之前的内容剥成隐式 thinking，避免那段第三人称分析暴露在气泡里。
-    /// 仅 assistant 消息 + Stoa 主题生效；用户气泡和其他主题不动。
-    private func stripStoaPreamble(_ raw: String) -> String {
-        guard theme.id == .stoa, message.role == .assistant else { return raw }
-        guard let moduleRange = raw.range(of: "<module>") else { return raw }
-        let preamble = String(raw[raw.startIndex..<moduleRange.lowerBound])
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !preamble.isEmpty else { return raw }
-        // 把 preamble 包成 <think>，让 ThinkingParser 走原有折叠路径
-        return "<think>\(preamble)</think>\n" + String(raw[moduleRange.lowerBound...])
-    }
-
     var body: some View {
-        let parsed = ThinkingParser.parse(stripStoaPreamble(message.content))
+        let parsed = parsedDisplayContent()
 
         HStack(alignment: .top, spacing: 6) {
             if isUser { Spacer(minLength: 40) }
@@ -770,7 +757,7 @@ struct MessageBubble: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-                } else if let thinking = parsed.thinking {
+                } else if theme.id != .stoa, let thinking = parsed.thinking {
                     ThinkingDisclosure(text: thinking)
                 }
 
@@ -914,6 +901,13 @@ struct MessageBubble: View {
         return parsed.main.isEmpty ? message.content : parsed.main
     }
 
+    private func parsedDisplayContent() -> ThinkingParser.ParsedContent {
+        guard theme.id == .stoa, message.role == .assistant else {
+            return ThinkingParser.parse(message.content)
+        }
+        return StoaParser.parseDisplayContent(message.content)
+    }
+
     private var bubbleBackground: some ShapeStyle {
         switch message.role {
         case .user:
@@ -983,7 +977,6 @@ struct InputBar: View {
     @Environment(\.theme) private var theme
     @Environment(\.fontStyle) private var fontStyle
     @ObservedObject private var voice = VoiceService.shared
-    @State private var micPulse = false
     @State private var slashSelectedIndex = 0
     /// 选中一条命令后立即收起菜单；删空 "/" 再重新触发会自动恢复。
     @State private var slashMenuCollapsed = false
@@ -1011,6 +1004,10 @@ struct InputBar: View {
         if isNoteMode { return .yellow }
         if isFocused.wrappedValue { return theme.accent }
         return .clear
+    }
+
+    private var inputCornerRadius: CGFloat {
+        theme.inputCornerRadius
     }
 
     var body: some View {
@@ -1107,69 +1104,30 @@ struct InputBar: View {
                         .padding(.trailing, 4)
                 }
 
-                // 语音输入状态指示
-                if voice.isRecording {
-                    HStack(spacing: 4) {
-                        Circle()
-                            .fill(.red)
-                            .frame(width: 8, height: 8)
-                        Text("录音中")
-                            .font(.caption)
-                            .foregroundColor(.red)
-                    }
-                    .padding(.trailing, 4)
-                }
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
             .background(
-                RoundedRectangle(cornerRadius: AppCornerRadius.input)
+                RoundedRectangle(cornerRadius: inputCornerRadius)
                     .fill(AppColors.inputBackground)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: AppCornerRadius.input)
+                RoundedRectangle(cornerRadius: inputCornerRadius)
                     .stroke(borderColor, lineWidth: 1.5)
             )
             .auroraFocusRings(
                 active: isFocused.wrappedValue && theme.id == .aurora,
-                cornerRadius: AppCornerRadius.input,
+                cornerRadius: inputCornerRadius,
                 accent: theme.accent
             )
             .shimmerBorder(
                 active: voice.isRecording,
-                cornerRadius: AppCornerRadius.input
+                cornerRadius: inputCornerRadius
             )
             .shadow(color: isFocused.wrappedValue ? theme.accent.opacity(0.30) : .clear,
                     radius: 10, x: 0, y: 4)
             .animation(.easeInOut(duration: 0.25), value: isFocused.wrappedValue)
             } // closes VStack(spacing: 0) — 命令补全菜单 + 输入框容器
-
-            // 麦克风按钮（扩大热区到 40×40，按钮本体仍 32 视觉一致）
-            Button {
-                toggleRecording()
-            } label: {
-                Image(systemName: voice.isRecording ? "mic.fill" : "mic")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(voice.isRecording ? .red : .secondary)
-                    .frame(width: 32, height: 32)
-                    .background(
-                        Circle()
-                            .fill(voice.isRecording ? .red.opacity(0.1) : Color.clear)
-                    )
-                    .scaleEffect(micPulse ? 1.15 : 1.0)
-                    .animation(
-                        micPulse
-                            ? .easeInOut(duration: 0.6).repeatForever(autoreverses: true)
-                            : .default,
-                        value: micPulse
-                    )
-                    .frame(width: 40, height: 40)        // 外圈热区
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .onChange(of: voice.isRecording) { _, isRec in
-                withAnimation { micPulse = isRec }
-            }
 
             // 发送按钮（主题渐变圆形 + accent 阴影，接入视觉锤；热区扩到 40×40）
             Button(action: onSend) {
@@ -1215,29 +1173,6 @@ struct InputBar: View {
         slashMenuCollapsed = true
     }
 
-    private func toggleRecording() {
-        if voice.isRecording {
-            voice.stopRecording()
-            if !voice.transcript.isEmpty {
-                text = voice.transcript
-            } else {
-                state.showBanner("未识别到语音，请重试", kind: .info)
-            }
-        } else {
-            Task {
-                let authorized = await voice.requestAuthorization()
-                if authorized {
-                    do {
-                        try voice.startRecording()
-                    } catch {
-                        state.showBanner("语音识别失败：\(error.localizedDescription)", kind: .error, duration: 5.0)
-                    }
-                } else {
-                    state.showBanner("语音识别未授权，请在系统设置 > 隐私与安全性 > 语音识别中开启", kind: .warning, duration: 6.0)
-                }
-            }
-        }
-    }
 }
 
 // MARK: - 输入条快捷键提示（Linear / Raycast 风 power-user 提示）

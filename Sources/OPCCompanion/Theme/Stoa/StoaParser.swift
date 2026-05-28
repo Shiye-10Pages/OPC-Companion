@@ -44,6 +44,14 @@ public struct VirtueRow: Equatable {
 /// 解析失败的部分回退为 `.text`。
 public enum StoaParser {
 
+    public static func parseDisplayContent(_ raw: String) -> ThinkingParser.ParsedContent {
+        let parsed = ThinkingParser.parse(raw)
+        return ThinkingParser.ParsedContent(
+            thinking: parsed.thinking,
+            main: stripPreambleBeforeModule(in: parsed.main)
+        )
+    }
+
     public static func parse(_ raw: String) -> [StoaSegment] {
         var segments: [StoaSegment] = []
         var remaining = raw
@@ -89,6 +97,23 @@ public enum StoaParser {
     ]
     /// 所有可识别标签名（含 typo 别名），保持原排序作为优先级
     private static let tagNames: [String] = tagAliases.values.flatMap { $0 }
+
+    public static func containsRecognizedTag(in text: String) -> Bool {
+        tagNames.contains { name in
+            text.range(of: "<\(name)", options: [.caseInsensitive]) != nil
+        }
+    }
+
+    public static func stripPreambleBeforeModule(in text: String) -> String {
+        guard let moduleRange = text.range(of: "<module", options: [.caseInsensitive]) else {
+            return text
+        }
+        let preamble = String(text[text.startIndex..<moduleRange.lowerBound])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !preamble.isEmpty else { return text }
+        return String(text[moduleRange.lowerBound...])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     private struct Match {
         let tag: String

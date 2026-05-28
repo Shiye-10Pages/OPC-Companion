@@ -8,8 +8,8 @@ public enum ThinkingParser {
     }
 
     public static func parse(_ text: String) -> ParsedContent {
-        let pattern = #"<think>([\s\S]*?)</think>\s*"#
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+        let pattern = #"<think(?:\s+[^>]*)?>([\s\S]*?)(?:</think>|<\\/think>)\s*"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
             return ParsedContent(thinking: nil, main: text)
         }
         let range = NSRange(text.startIndex..<text.endIndex, in: text)
@@ -27,7 +27,7 @@ public enum ThinkingParser {
 
         return ParsedContent(
             thinking: thinkingParts.isEmpty ? nil : thinkingParts.joined(separator: "\n\n"),
-            main: stripLegacyActionTags(mainText)
+            main: stripLegacyActionTags(stripStrayThinkingTags(mainText))
         )
     }
 
@@ -37,6 +37,16 @@ public enum ThinkingParser {
     public static func stripLegacyActionTags(_ text: String) -> String {
         let pattern = #"\[ACTION:[^\]]*\]"#
         guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+            return text
+        }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        let stripped = regex.stringByReplacingMatches(in: text, options: [], range: range, withTemplate: "")
+        return stripped.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func stripStrayThinkingTags(_ text: String) -> String {
+        let pattern = #"</?think(?:\s+[^>]*)?>|<\\/?think>"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
             return text
         }
         let range = NSRange(text.startIndex..<text.endIndex, in: text)

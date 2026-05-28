@@ -20,8 +20,7 @@ struct MarkdownText: View {
     }
 
     private var containsStoaTags: Bool {
-        let tags = ["<module>", "<dichotomy>", "<factjudge>", "<ritual>", "<tempo", "<virtues>", "<quote"]
-        return tags.contains { text.contains($0) }
+        StoaParser.containsRecognizedTag(in: text)
     }
 
     private var stoaContent: some View {

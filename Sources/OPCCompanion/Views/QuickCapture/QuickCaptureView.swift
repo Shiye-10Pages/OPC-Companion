@@ -95,7 +95,10 @@ struct QuickCaptureView: View {
     private func startVoice() {
         Task {
             let authorized = await voice.requestAuthorization()
-            guard authorized else { return }
+            guard authorized else {
+                AppState.shared.showBanner("语音输入暂未启用，请先用文字记录", kind: .info, duration: 3.0)
+                return
+            }
             do {
                 try voice.startRecording()
                 await MainActor.run {
@@ -103,7 +106,7 @@ struct QuickCaptureView: View {
                     pulse = true
                 }
             } catch {
-                // 录音失败 fallback 到文字模式
+                AppState.shared.showBanner("语音输入暂未启用，请先用文字记录", kind: .info, duration: 3.0)
             }
         }
     }
