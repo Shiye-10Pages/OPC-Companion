@@ -25,7 +25,7 @@ final class YellowBadgeView: NSView {
         let font = NSFont.systemFont(ofSize: 8, weight: .bold)
         let attrs: [NSAttributedString.Key: Any] = [
             .font: font,
-            .foregroundColor: NSColor.white
+            .foregroundColor: NSColor.black
         ]
         let nsText = text as NSString
         let textSize = nsText.size(withAttributes: attrs)
@@ -40,6 +40,7 @@ final class YellowBadgeView: NSView {
 /// 在 styleMask 不含 .titled 的 NSPanel 里，AppKit 不会自动把 Edit 菜单
 /// 的 cut:/copy:/paste:/selectAll: 路由到 SwiftUI TextField/SecureField。
 /// 我们在 panel 层显式重派发，保证粘贴在 SecureField（设置页 API Key 等）里也工作。
+@MainActor
 private func forwardStandardEditCommands(_ event: NSEvent) -> Bool {
     guard event.modifierFlags.contains(.command),
           !event.modifierFlags.contains(.option),
@@ -323,19 +324,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         panel.collectionBehavior = [.fullScreenAuxiliary]
         panel.backgroundColor = .clear
         panel.isOpaque = false
-        panel.hasShadow = true
+        // 关键：禁用 panel 自带的矩形阴影。它会按 panel 矩形 frame 画，
+        // 不知道 effectView 里圆了角 → 圆角外侧到 panel 边缘那一圈是直角
+        // 阴影留白，视觉上呈现"圆角外有直角"的多层效果。
+        // 改为下面 shadowWrapper 自绘跟随 cornerRadius 的 shadowPath。
+        panel.hasShadow = false
         panel.hidesOnDeactivate = false
 
         panel.isReleasedWhenClosed = false
         panel.delegate = self
 
-        let effectView = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: 760, height: 620))
+        let initialRadius = ThemeProvider.shared.current.panelCornerRadius
+
+        // shadowWrapper：负责绘制跟随圆角的阴影；自身不裁切（masksToBounds=false 让阴影画得出去）
+        let shadowWrapper = NSView(frame: NSRect(x: 0, y: 0, width: 760, height: 620))
+        shadowWrapper.wantsLayer = true
+        shadowWrapper.layer?.shadowColor = NSColor.black.cgColor
+        shadowWrapper.layer?.shadowOpacity = 0.32
+        shadowWrapper.layer?.shadowOffset = NSSize(width: 0, height: -8)
+        shadowWrapper.layer?.shadowRadius = 24
+        shadowWrapper.layer?.shadowPath = CGPath(
+            roundedRect: shadowWrapper.bounds,
+            cornerWidth: initialRadius, cornerHeight: initialRadius,
+            transform: nil
+        )
+        shadowWrapper.layer?.masksToBounds = false
+        shadowWrapper.autoresizingMask = [.width, .height]
+
+        let effectView = NSVisualEffectView(frame: shadowWrapper.bounds)
         effectView.material = .popover          // 比 hudWindow 更轻透，接近 Liquid Glass
         effectView.blendingMode = .behindWindow
         effectView.state = .active
         effectView.wantsLayer = true
         // 初始圆角 = 当前主题 panelCornerRadius；后续主题切换会通过 syncPanelCornerRadius 跟随
-        effectView.layer?.cornerRadius = ThemeProvider.shared.current.panelCornerRadius
+        effectView.layer?.cornerRadius = initialRadius
         effectView.layer?.masksToBounds = true
         effectView.autoresizingMask = [.width, .height]
         self.panelEffectView = effectView
@@ -343,9 +365,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         hostingView.frame = effectView.bounds
         hostingView.autoresizingMask = [.width, .height]
         effectView.addSubview(hostingView)
+        shadowWrapper.addSubview(effectView)
 
         dlog("[DIAG] Setting panel contentView...")
-        panel.contentView = effectView
+        panel.contentView = shadowWrapper
         
         self.panel = panel
         
@@ -450,16 +473,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         hotkeyDownTime = now
         isLongPressTriggered = false
 
-        // 500ms 之后还在按 → 长按进入语音（用 Task.sleep 替代 asyncAfter 避免 Swift 6 isolation check）
+        // 语音输入入口暂时隐藏：长按不再启动录音，只确保主面板打开。
         Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 500_000_000)
             guard let self = self, self.hotkeyDownTime != nil else { return }
             self.isLongPressTriggered = true
             if let p = self.panel, !p.isVisible { self.showPanel() }
-            let authorized = await VoiceService.shared.requestAuthorization()
-            if authorized && !VoiceService.shared.isRecording {
-                try? VoiceService.shared.startRecording()
-            }
         }
     }
 
@@ -529,20 +548,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         dlog("[DIAG] setupStateObservers: START")
 
         // 任何状态变化都刷新菜单栏外观
-        let incompletePub = state.$tasks.map { tasks in
-            tasks.contains { $0.status == .pending || $0.status == .inProgress }
+        let pendingNotesPub = state.$notes.map { notes in
+            notes.filter { $0.status == .pending }.count
         }
         state.$menuBarStatus
-            .combineLatest(state.$hasUnreadReminders, incompletePub)
+            .combineLatest(state.$hasUnreadReminders, pendingNotesPub)
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] status, unread, hasIncomplete in
-                self?.updateStatusItemAppearance(status: status, hasUnread: unread || hasIncomplete)
+            .sink { [weak self] status, hasUnreadReminder, pendingNoteCount in
+                self?.updateStatusItemAppearance(
+                    status: status,
+                    hasUnreadReminder: hasUnreadReminder,
+                    pendingNoteCount: pendingNoteCount
+                )
             }
             .store(in: &cancellables)
 
         updateStatusItemAppearance(
             status: state.menuBarStatus,
-            hasUnread: state.hasUnreadReminders || state.hasIncompleteTasks
+            hasUnreadReminder: state.hasUnreadReminders,
+            pendingNoteCount: state.unreadNoteCount
         )
 
         // 每秒刷新菜单栏文字（展示正在进行任务名 + 倒计时）
@@ -592,7 +616,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         button.attributedTitle = attributed
     }
 
-    private func updateStatusItemAppearance(status: MenuBarStatus, hasUnread: Bool) {
+    private func updateStatusItemAppearance(status: MenuBarStatus, hasUnreadReminder: Bool, pendingNoteCount: Int) {
         guard let button = statusItem?.button else {
             dlog("[STATUS] updateStatusItemAppearance skipped — button is nil")
             return
@@ -614,8 +638,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         button.subviews.compactMap { $0 as? RedDotView }.forEach { $0.removeFromSuperview() }
         button.subviews.compactMap { $0 as? YellowBadgeView }.forEach { $0.removeFromSuperview() }
 
-        // 红点 — 有待办任务或未读提醒时显示
-        if hasUnread {
+        // 红点只表示未读提醒；随手记用黄色数字，任务状态由图标颜色/标题表达。
+        if hasUnreadReminder {
             let dotSize: CGFloat = 6
             let frame = NSRect(
                 x: button.bounds.width - dotSize - 1,
@@ -629,6 +653,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             dot.layer?.cornerRadius = dotSize / 2
             dot.autoresizingMask = [.minXMargin, .minYMargin]
             button.addSubview(dot)
+        }
+
+        if pendingNoteCount > 0 {
+            let badgeSize: CGFloat = 14
+            let frame = NSRect(
+                x: button.bounds.width - badgeSize + 2,
+                y: -1,
+                width: badgeSize,
+                height: badgeSize
+            )
+            let badge = YellowBadgeView(frame: frame)
+            badge.text = pendingNoteCount > 9 ? "9+" : "\(pendingNoteCount)"
+            badge.autoresizingMask = [.minXMargin, .maxYMargin]
+            button.addSubview(badge)
         }
     }
 
@@ -665,8 +703,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if let p = panel {
             if p.isVisible {
                 dlog("[ACTION] Hiding panel")
-                p.orderOut(nil)
-                state.isPanelVisible = false
+                hidePanel()
             } else {
                 dlog("[ACTION] Showing panel")
                 showPanel()
@@ -682,9 +719,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func hidePanel() {
         dlog("[ACTION] hidePanel called")
         if let p = panel, p.isVisible {
-            p.orderOut(nil)
-            state.isPanelVisible = false
-            dlog("[ACTION] Panel hidden")
+            NSAnimationContext.runAnimationGroup({ context in
+                context.duration = 0.14
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                p.animator().alphaValue = 0.0
+            }, completionHandler: {
+                DispatchQueue.main.async {
+                    p.orderOut(nil)
+                    p.alphaValue = 1.0
+                    self.state.isPanelVisible = false
+                    dlog("[ACTION] Panel hidden")
+                }
+            })
         }
         // 关 panel 时清理可能挂起的资源：录音 + Notion 确认 continuation + 浮层
         if VoiceService.shared.isRecording {
@@ -734,9 +780,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         
         // 关键顺序：先 activate app，再让 panel becomeKey，否则 macOS IME 不工作
         NSApplication.shared.activate(ignoringOtherApps: true)
-        p.alphaValue = 1.0
+        p.alphaValue = 0.0
         p.makeKeyAndOrderFront(nil)
         state.isPanelVisible = true
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.16
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            p.animator().alphaValue = 1.0
+        }
 
         // 打开面板 = 用户主动回到 OPC，重置静默计时
         state.markActivity()
@@ -828,7 +879,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         effect.autoresizingMask = [.width, .height]
 
         let view = QuickCaptureView(
-            autoStartVoice: true,
+            autoStartVoice: false,
             onSubmit: { [weak self] text, inputMode, kind in
                 let source: Note.Source = (inputMode == .voice) ? .hotkeyVoice : .hotkeyText
                 AppState.shared.captureNote(content: text, source: source, inputMode: inputMode, kind: kind)
@@ -912,16 +963,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let settingsItem = NSMenuItem(title: "设置...", action: #selector(menuOpenSettings), keyEquivalent: ",")
         settingsItem.target = self
         menu.addItem(settingsItem)
-
-        let debugItem = NSMenuItem(title: "调试：循环图标颜色", action: #selector(menuDebugCycleStatus), keyEquivalent: "")
-        debugItem.target = self
-        menu.addItem(debugItem)
-
-        let debugDotItem = NSMenuItem(title: "调试：切换红点", action: #selector(menuDebugToggleDot), keyEquivalent: "")
-        debugDotItem.target = self
-        menu.addItem(debugDotItem)
-
-        menu.addItem(NSMenuItem.separator())
 
         let quitItem = NSMenuItem(title: "退出", action: #selector(menuQuit), keyEquivalent: "q")
         quitItem.target = self

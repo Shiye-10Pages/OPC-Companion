@@ -67,8 +67,17 @@ struct ContentView: View {
     }
 
     private func syncPanelCornerRadius() {
-        AppDelegate.shared?.panelEffectView?.layer?.cornerRadius =
-            themeProvider.current.panelCornerRadius
+        let r = themeProvider.current.panelCornerRadius
+        guard let effectView = AppDelegate.shared?.panelEffectView else { return }
+        effectView.layer?.cornerRadius = r
+        // 同步 shadowWrapper（effectView.superview）的 shadowPath，让阴影跟着圆角变
+        if let wrapper = effectView.superview, let wlayer = wrapper.layer {
+            wlayer.shadowPath = CGPath(
+                roundedRect: wrapper.bounds,
+                cornerWidth: r, cornerHeight: r,
+                transform: nil
+            )
+        }
     }
 
     private func syncPanelAppearance() {
