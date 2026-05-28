@@ -358,11 +358,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         panel.collectionBehavior = [.fullScreenAuxiliary]
         panel.backgroundColor = .clear
         panel.isOpaque = false
-        // 关键：禁用 panel 自带的矩形阴影。它会按 panel 矩形 frame 画，
-        // 不知道 effectView 里圆了角 → 圆角外侧到 panel 边缘那一圈是直角
-        // 阴影留白，视觉上呈现"圆角外有直角"的多层效果。
-        // 改为下面 shadowWrapper 自绘跟随 cornerRadius 的 shadowPath。
-        panel.hasShadow = false
+        // 恢复 panel 系统级 shadow：现在 hostingView + effectView 都圆角裁切了，
+        // panel 的 alpha shape 是圆角的（圆角外像素 alpha = 0）。
+        // NSPanel.hasShadow=true 会按 alpha 不透明区域画 shadow，penumbra 完全
+        // 在 panel 外。比手画 shadowWrapper.layer.shadow 更干净（不在 panel 内
+        // 留残留 5-9% alpha penumbra）。
+        panel.hasShadow = true
         panel.hidesOnDeactivate = false
 
         panel.isReleasedWhenClosed = false
@@ -370,21 +371,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         let initialRadius = ThemeProvider.shared.current.panelCornerRadius
 
-        // shadowWrapper：负责绘制跟随圆角的阴影；自身不裁切（masksToBounds=false 让阴影画得出去）
+        // shadowWrapper：保留作为 effectView/hostingView 的容器，但不再画 shadow。
+        // shadow 由 panel.hasShadow=true 由 macOS 系统级按 alpha shape 自动绘制。
         let shadowWrapper = NSView(frame: NSRect(x: 0, y: 0, width: 760, height: 620))
         shadowWrapper.wantsLayer = true
-        shadowWrapper.layer?.shadowColor = NSColor.black.cgColor
-        shadowWrapper.layer?.shadowOpacity = 0.32
-        shadowWrapper.layer?.shadowOffset = NSSize(width: 0, height: -8)
-        shadowWrapper.layer?.shadowRadius = 24
-        shadowWrapper.layer?.shadowPath = CGPath(
-            roundedRect: shadowWrapper.bounds,
-            cornerWidth: initialRadius, cornerHeight: initialRadius,
-            transform: nil
-        )
-        shadowWrapper.layer?.masksToBounds = false
         // 显式透明：杜绝 wrapper 自身在圆角外漏色（A2 防御）
         shadowWrapper.layer?.backgroundColor = NSColor.clear.cgColor
+        shadowWrapper.layer?.masksToBounds = false
         shadowWrapper.autoresizingMask = [.width, .height]
 
         let effectView = NSVisualEffectView(frame: shadowWrapper.bounds)

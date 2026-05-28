@@ -81,14 +81,9 @@ struct ContentView: View {
             host.layer?.cornerRadius = r
             host.layer?.masksToBounds = true
         }
-        // 4. shadowWrapper 的 shadowPath（阴影跟着圆角变）
-        if let wrapper = effectView.superview, let wlayer = wrapper.layer {
-            wlayer.shadowPath = CGPath(
-                roundedRect: wrapper.bounds,
-                cornerWidth: r, cornerHeight: r,
-                transform: nil
-            )
-        }
+        // 注：panel shadow 由 macOS 系统级 NSPanel.hasShadow=true 自动按 panel alpha
+        // shape 绘制（hostingView+effectView 圆角裁切后 panel 实际 shape 就是圆角的），
+        // 不再需要手动 shadowPath 同步。
     }
 
     private func syncPanelAppearance() {
