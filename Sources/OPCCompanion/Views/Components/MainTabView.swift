@@ -16,15 +16,15 @@ struct MainTabView: View {
         ZStack(alignment: .top) {
             VStack(spacing: 0) {
                 // —— 顶部胶囊导航（始终常驻）——
-                // 用 background 放 WindowDragHandle：胶囊本身可点击（hit-test 优先命中
-                // 前景按钮），胶囊周围的 padding 区域 hit 到 background → 启动拖窗。
+                // 拖动热区由 AppDelegate.setupDragHotZoneMonitor() 在 AppKit 事件路径上处理。
+                // 在 SwiftUI 里包 NSView+mouseDownCanMoveWindow 完全不工作：NSHostingView 会
+                // 吞掉鼠标事件，AppKit 检查 mouseDownCanMoveWindow 的代码路径根本走不到。
                 NewTabBar(visibleTab: visibleTab, tabs: Self.visibleTabs) { tab in
                     selectVisibleTab(tab)
                 }
                 .padding(.top, 12)
                 .padding(.bottom, 14)   // 拉开与 StatusBar 的呼吸距离，避免双重背景硬边
                 .frame(maxWidth: .infinity)
-                .background(WindowDragHandle())
 
                 // —— 内容区：按可见 tab 切换 ——
                 Group {
@@ -458,15 +458,8 @@ struct TasksPopoverContent: View {
     }
 }
 
-// MARK: - 窗口拖动手柄（NSView mouseDownCanMoveWindow=true）
-// 限定 panel 仅在被这个 view 覆盖的区域可拖。其它区域 panel.isMovableByWindowBackground=false。
-
-struct WindowDragHandle: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView { DragHandleNSView() }
-    func updateNSView(_ nsView: NSView, context: Context) {}
-}
-
-private final class DragHandleNSView: NSView {
-    override var mouseDownCanMoveWindow: Bool { true }
-    // 不阻挡子 view（SwiftUI hostingView 的按钮等）的事件 — 让 hit-test 默认行为决定
-}
+// 拖动热区：见 AppDelegate.setupDragHotZoneMonitor()。
+// 历史上这里有 WindowDragHandle (NSViewRepresentable + mouseDownCanMoveWindow=true)。
+// 实测在 NSHostingView 包裹下完全失效——SwiftUI 自己 hit-test 把鼠标事件消化掉了，
+// AppKit 检查 mouseDownCanMoveWindow 的代码路径根本走不到，所以面板完全不能拖。
+// 已迁移到 AppDelegate 的 NSEvent.addLocalMonitorForEvents 方案。

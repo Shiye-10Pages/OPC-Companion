@@ -110,10 +110,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     var hotkeyMonitor: Any?
     var localHotkeyMonitor: Any?
+    /// 拖动热区监视器：SwiftUI NSHostingView 会吞掉鼠标事件，导致 NSView 子 view
+    /// 的 mouseDownCanMoveWindow 完全不工作。改用 NSEvent.addLocalMonitorForEvents
+    /// 在 AppKit 事件路径上拦截 leftMouseDown，命中热区时调用 panel.performDrag。
+    var dragHotZoneMonitor: Any?
     var hotkeyDownTime: Date?
     var isLongPressTriggered = false
     private var lastSpaceKeyDownAt: Date = .distantPast
     private var lastQuickCaptureAt: Date = .distantPast
+
+    // 顶部胶囊导航的拖动热区参数（panel 局部坐标，原点在左下）
+    // panel 高 620，宽 760。NewTabBar 在 ContentView 顶部，padding(.top, 12) + bar(~46) + padding(.bottom, 14) = 72pt
+    // 胶囊本身在屏幕居中，宽度约 280pt → x ∈ [240, 520] 是胶囊范围（不拖，让胶囊响应点击）
+    private static let dragHotZoneTopHeight: CGFloat = 72   // 顶部 72pt 是 TabBar 区域
+    private static let dragHotZoneCapsuleHalfWidth: CGFloat = 150  // 胶囊估算半宽，中心 ±150pt = 300pt 总宽（保守留点 margin）
 
     var state = AppState.shared
     private var cancellables = Set<AnyCancellable>()
@@ -147,6 +157,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         setupHotkey()
         dlog("[DIAG] Hotkey setup completed")
         dlog("[DIAG] hotkeyMonitor: \(String(describing: hotkeyMonitor))")
+
+        setupDragHotZoneMonitor()
+        dlog("[DIAG] Drag hot zone monitor setup completed")
 
         startScheduledTaskCheck()
         dlog("[DIAG] Timer setup completed")
@@ -451,6 +464,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return event
         }
         dlog("[DIAG] setupHotkey: END")
+    }
+
+    /// 拖动热区：仅在 panel 顶部 TabBar 区域内（且避开胶囊本身）启动 panel 拖动。
+    ///
+    /// 背景：原本想用 SwiftUI NSViewRepresentable 包 NSView 配合 mouseDownCanMoveWindow=true。
+    /// 实测在 NSHostingView 包裹下完全失效——SwiftUI 自己的 hit-test 处理掉了鼠标事件，
+    /// AppKit 检查 mouseDownCanMoveWindow 的代码路径走不到。
+    /// 改用 NSEvent.addLocalMonitorForEvents 在 SwiftUI 之前的事件路径上拦截 leftMouseDown，
+    /// 命中热区时调用 panel.performDrag(with:) 并返回 nil 消费事件。
+    private func setupDragHotZoneMonitor() {
+        dragHotZoneMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { [weak self] event in
+            guard let self = self,
+                  let p = self.panel,
+                  event.window === p else {
+                return event
+            }
+
+            let location = event.locationInWindow  // panel 局部坐标，原点左下
+            let panelHeight = p.frame.height
+            let panelWidth = p.frame.width
+
+            // 顶部 72pt 之外不响应（让 ChatView / 列表 / 输入框等正常工作）
+            let topEdgeY = panelHeight - Self.dragHotZoneTopHeight
+            guard location.y >= topEdgeY else {
+                return event
+            }
+
+            // 胶囊本身区域：panel 中央水平方向 ±dragHotZoneCapsuleHalfWidth，且竖直方向避开胶囊本体
+            // 胶囊估算 y 范围：从 panel 顶部往下 12pt（top padding）后开始，高度约 46pt
+            // 即胶囊本体 y ∈ [panelHeight - 12 - 46, panelHeight - 12]
+            let centerX = panelWidth / 2
+            let inCapsuleHorizontal = abs(location.x - centerX) <= Self.dragHotZoneCapsuleHalfWidth
+            let capsuleTop = panelHeight - 12
+            let capsuleBottom = panelHeight - 12 - 46
+            let inCapsuleVertical = location.y <= capsuleTop && location.y >= capsuleBottom
+
+            if inCapsuleHorizontal && inCapsuleVertical {
+                // 胶囊本体：让 SwiftUI 处理点击切换 Tab
+                dlog("[DRAG] mouseDown at (\(Int(location.x)), \(Int(location.y))) — in capsule body, skip drag")
+                return event
+            }
+
+            dlog("[DRAG] mouseDown at (\(Int(location.x)), \(Int(location.y))) — in hot zone, performDrag")
+            p.performDrag(with: event)
+            return nil  // 消费这次 mouseDown，避免 SwiftUI 同时处理（performDrag 接管后续 mouseDragged/mouseUp）
+        }
     }
 
     /// 设置页「重新注册热键」按钮调用：先全量注销 Carbon 热键，再重新注册（不动 local monitor）。
@@ -962,6 +1021,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if let monitor = localHotkeyMonitor {
             NSEvent.removeMonitor(monitor)
             localHotkeyMonitor = nil
+        }
+        if let monitor = dragHotZoneMonitor {
+            NSEvent.removeMonitor(monitor)
+            dragHotZoneMonitor = nil
         }
         if VoiceService.shared.isRecording {
             VoiceService.shared.stopRecording()
