@@ -104,6 +104,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var panel: NSPanel?
     /// 主面板的 visualEffectView 引用，便于主题切换时同步 layer.cornerRadius
     weak var panelEffectView: NSVisualEffectView?
+    /// 主面板 SwiftUI 宿主 view 的引用：必须跟 effectView 一样保持圆角 mask，
+    /// 否则 SwiftUI 内部 .clipShape 管不到 NSHostingView 这层 NSView backing，
+    /// 它的 layer 会按矩形填满 effectView.bounds → 圆角外露出"浅色直角边"。
+    weak var panelHostingLayerView: NSView?
     var quickCapturePanel: NSPanel?
     var statusItem: NSStatusItem?
     var popover: NSPopover?
@@ -379,6 +383,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             transform: nil
         )
         shadowWrapper.layer?.masksToBounds = false
+        // 显式透明：杜绝 wrapper 自身在圆角外漏色（A2 防御）
+        shadowWrapper.layer?.backgroundColor = NSColor.clear.cgColor
         shadowWrapper.autoresizingMask = [.width, .height]
 
         let effectView = NSVisualEffectView(frame: shadowWrapper.bounds)
@@ -398,6 +404,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         hostingView.frame = effectView.bounds
         hostingView.autoresizingMask = [.width, .height]
+        // —— Aurora 圆角外浅色直角边的真凶 ——
+        // NSVisualEffectView 的 maskImage 只裁 effectView 自己的 material backdrop；
+        // 它的 layer.masksToBounds 是按 bounds（矩形）裁子 layer，不按 cornerRadius。
+        // 也就是说：子 view（hostingView）的 layer 仍然会以矩形铺满整个 effectView.bounds。
+        // SwiftUI 内部的 .clipShape(RoundedRectangle) 只作用于 SwiftUI 渲染层，
+        // 管不到 NSHostingView 这一层 AppKit 容器自身的 layer backing。
+        // 结果就是：effectView 把 material 裁出圆角后，hostingView 的矩形 layer
+        // 在圆角弧外那块仍然填充（SwiftUI 默认根视图的不透明背景） → 浅色直角边。
+        // 解决：让 hostingView 自己也按 panelCornerRadius 圆角裁切。
+        hostingView.wantsLayer = true
+        hostingView.layer?.cornerRadius = initialRadius
+        hostingView.layer?.masksToBounds = true
+        hostingView.layer?.backgroundColor = NSColor.clear.cgColor
+        // [Debug] 涂色实验开关：如果将来再出"圆角外漏色"症状，把下行注释取消
+        // 切到 Aurora 看四个圆角外露出什么色：
+        //   .systemRed   → hostingView 的 layer 没裁干净（A1 复发）
+        //   .systemBlue  → shadowWrapper 的 layer 漏色（试 shadowWrapper.layer?.backgroundColor）
+        //   什么都没漏   → 不是 NSHostingView 这层
+        // hostingView.layer?.backgroundColor = NSColor.systemRed.cgColor
+        self.panelHostingLayerView = hostingView
+
         effectView.addSubview(hostingView)
         shadowWrapper.addSubview(effectView)
 
