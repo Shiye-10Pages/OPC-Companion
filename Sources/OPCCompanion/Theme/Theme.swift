@@ -7,6 +7,7 @@ public enum ThemeID: String, CaseIterable, Codable {
     case wabi
     case flow
     case stoa
+    case quietField
 
     public var displayName: String {
         switch self {
@@ -14,6 +15,7 @@ public enum ThemeID: String, CaseIterable, Codable {
         case .wabi:   return "侘寂 Wabi"
         case .flow:   return "心流 Flow"
         case .stoa:   return "斯多葛 Stoa"
+        case .quietField: return "静场 Quiet Field"
         }
     }
 
@@ -23,6 +25,7 @@ public enum ThemeID: String, CaseIterable, Codable {
         case .wabi:   return "殘缺亦完。"
         case .flow:   return "Less. Sharper. Now."
         case .stoa:   return "A mirror, not a maid."
+        case .quietField: return "A field, not a feed."
         }
     }
 
@@ -32,6 +35,7 @@ public enum ThemeID: String, CaseIterable, Codable {
         case .wabi:   return "朱砂落款 · 古文體 AI · 接受未完成。"
         case .flow:   return "减一切冗余，AI 主动校准你的挑战难度。"
         case .stoa:   return "AI 不替你做事，它把事情拆开给你看。"
+        case .quietField: return "少说、短句、可收束。让思绪有边界。"
         }
     }
 }

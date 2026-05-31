@@ -28,7 +28,7 @@ struct ThemeSection: View {
                     .foregroundStyle(.secondary)
             }
 
-            // 2 × 2 网格
+            // 主题网格
             let columns = [GridItem(.flexible(), spacing: 10),
                            GridItem(.flexible(), spacing: 10)]
             LazyVGrid(columns: columns, spacing: 10) {
@@ -279,10 +279,10 @@ struct ThemeCard: View {
 
     @State private var isHovered = false
 
-    /// 本次仅 Aurora / Stoa 完整实现，Wabi / Flow 占位
+    /// 本次 Aurora / Stoa / Quiet Field 完整实现，Wabi / Flow 占位
     static func isFullyImplemented(_ id: ThemeID) -> Bool {
         switch id {
-        case .aurora, .stoa: return true
+        case .aurora, .stoa, .quietField: return true
         case .wabi, .flow:   return false
         }
     }
@@ -400,6 +400,32 @@ struct ThemeCard: View {
                 .padding(.trailing, 10)
                 .padding(.top, 8)
                 .frame(maxHeight: .infinity, alignment: .top)
+            }
+        case .quietField:
+            // 温纸 / 石墨 / 朱砂信号线
+            ZStack(alignment: .bottomTrailing) {
+                LinearGradient(colors: [Color(hex: "#151718"), Color(hex: "#0A0B0C")],
+                               startPoint: .top, endPoint: .bottom)
+                VStack(spacing: 12) {
+                    Rectangle()
+                        .fill(Color.white.opacity(0.09))
+                        .frame(height: 0.5)
+                    HStack {
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(Color(hex: "#E7DFD1").opacity(0.18))
+                            .frame(width: 54, height: 18)
+                        Spacer()
+                    }
+                    Rectangle()
+                        .fill(Color(hex: "#B89355").opacity(0.35))
+                        .frame(width: 72, height: 1)
+                }
+                .padding(10)
+                Rectangle()
+                    .fill(Color(hex: "#9E3F35"))
+                    .frame(width: 1.5, height: 16)
+                    .rotationEffect(.degrees(6))
+                    .padding(10)
             }
         case .wabi:
             // 墨色 + 朱砂落款

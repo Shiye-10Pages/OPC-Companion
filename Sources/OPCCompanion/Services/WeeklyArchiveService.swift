@@ -109,7 +109,10 @@ public final class WeeklyArchiveService {
                 AppState.shared.showBanner("本周周报已生成", kind: .info, duration: 4.0)
             }
         } catch {
-            OPCLogger.shared.log(.warn, "weekly", "generation failed: \(error.localizedDescription)")
+            OPCLogger.shared.log(.error, "weekly", "周报生成失败: \(error.localizedDescription)")
+            await MainActor.run {
+                AppState.shared.showBanner("本周周报生成失败，稍后重试", kind: .warning, duration: 4.0)
+            }
         }
     }
 

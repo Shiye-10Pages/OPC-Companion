@@ -195,9 +195,8 @@ struct ChatView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("· 输入消息按回车发送")
                 Text("· 「开始 XX 25 分钟」直接启动计时")
-                Text("· 「/ 想法」存为随手记不打扰对话")
-                Text("· 长按 Option+Space 进入语音模式")
-                Text("· Option+` 快速记一下")
+                Text("· / 开头存为随手记（/随手记 /聊聊 /今日必做 /学习）")
+                Text("· Option+空格 唤起前门，随手记 / 聊聊 一键切换")
             }
             .font(.caption)
             .foregroundColor(.secondary)
@@ -331,101 +330,7 @@ struct ChatView: View {
     }
 }
 
-struct TaskSection: View {
-    @EnvironmentObject var state: AppState
-    @State private var isExpanded = true
-
-    var body: some View {
-        Group {
-            if state.tasks.isEmpty {
-                compactEmptyBar
-            } else {
-                fullSection
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.top, 8)
-    }
-
-    private var compactEmptyBar: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "checklist")
-                .font(.system(size: 12))
-            Text("今日任务 · 暂无")
-                .font(.caption)
-            Spacer()
-            Button { state.showAddTaskOverlay = true } label: {
-                Image(systemName: "plus.circle")
-                    .font(.system(size: 13))
-            }
-            .buttonStyle(.borderless)
-            .help("添加任务")
-        }
-        .foregroundColor(.secondary)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 6)
-        .background(
-            RoundedRectangle(cornerRadius: AppCornerRadius.button)
-                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.4))
-        )
-    }
-
-    private var fullSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Image(systemName: "checklist")
-                    .font(.system(size: 14, weight: .medium))
-                Text("今日任务")
-                    .font(AppTypography.body.bold())
-
-                Spacer()
-
-                Text("\(state.tasks.count)")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(AppColors.primary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 2)
-                    .background(AppColors.primary.opacity(0.18))
-                    .cornerRadius(10)
-
-                Button { state.showAddTaskOverlay = true } label: {
-                    Image(systemName: "plus.circle")
-                        .font(.system(size: 14))
-                }
-                .buttonStyle(.borderless)
-                .help("添加任务")
-
-                Button {
-                    withAnimation(AppAnimations.quick) { isExpanded.toggle() }
-                } label: {
-                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 11))
-                }
-                .buttonStyle(.borderless)
-                .foregroundColor(.secondary)
-            }
-            .foregroundColor(.primary)
-            .padding(.horizontal, 16)
-            .padding(.top, 12)
-
-            if isExpanded {
-                VStack(spacing: 6) {
-                    ForEach(state.tasks) { task in
-                        TaskCard(task: task)
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 12)
-                .transition(.opacity.combined(with: .move(edge: .top)))
-            }
-        }
-        .background(
-            RoundedRectangle(cornerRadius: AppCornerRadius.card)
-                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5))
-        )
-    }
-
-}
+// TaskSection 已删除（死代码：全工程无实例化）
 
 struct AddTaskSheet: View {
     @State private var title = ""

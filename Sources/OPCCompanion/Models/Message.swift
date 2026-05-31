@@ -54,13 +54,4 @@ public enum InputMode: String, Codable, Sendable {
     case voice
 }
 
-extension MessageRole {
-    var chatCompletionRole: String {
-        switch self {
-        case .user:
-            return "user"
-        case .assistant, .system:
-            return "assistant"
-        }
-    }
-}
+// MessageRole.chatCompletionRole 已删除（死代码，wire 格式转换走 WireMessage）

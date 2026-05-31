@@ -31,6 +31,7 @@ public final class ThemeProvider: ObservableObject {
         case .wabi:   current = AuroraTheme()    // 占位：本次仅 Aurora 完整实现
         case .flow:   current = AuroraTheme()    // 占位
         case .stoa:   current = StoaTheme()
+        case .quietField: current = QuietFieldTheme()
         }
     }
 

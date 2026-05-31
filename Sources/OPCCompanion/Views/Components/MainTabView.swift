@@ -5,47 +5,56 @@ struct MainTabView: View {
     @EnvironmentObject var state: AppState
     @Environment(\.theme) private var theme
 
-    /// 三胶囊导航的当前可见 tab：只能是 .chat / .history / .settings 三者之一。
-    /// state.selectedTab 仍保留 5 个 case，.tasks / .inbox 作为 chat 上叠加的 popover 触发态。
+    /// Quiet Field 的当前可见场所：此刻 / 浮念 / 收束 / 设置。
+    /// state.selectedTab 仍保留 5 个 case，.tasks 作为此刻上的 popover 触发态。
     @State private var visibleTab: AppTab = .chat
 
-    /// 可见的三颗胶囊（顺序固定）
-    private static let visibleTabs: [AppTab] = [.chat, .history, .settings]
+    /// 可见的三颗场所胶囊（顺序固定）
+    private static let visibleTabs: [AppTab] = [.chat, .inbox, .history]
 
     var body: some View {
         ZStack(alignment: .top) {
             VStack(spacing: 0) {
-                // —— 顶部胶囊导航（始终常驻）——
+                // —— 顶部场所导航（始终常驻）——
                 // 拖动热区由 AppDelegate.setupDragHotZoneMonitor() 在 AppKit 事件路径上处理。
                 // 在 SwiftUI 里包 NSView+mouseDownCanMoveWindow 完全不工作：NSHostingView 会
                 // 吞掉鼠标事件，AppKit 检查 mouseDownCanMoveWindow 的代码路径根本走不到。
-                NewTabBar(visibleTab: visibleTab, tabs: Self.visibleTabs) { tab in
-                    selectVisibleTab(tab)
+                HStack(spacing: 10) {
+                    Spacer()
+                    NewTabBar(visibleTab: visibleTab, tabs: Self.visibleTabs) { tab in
+                        selectVisibleTab(tab)
+                    }
+                    SettingsGearButton(isSelected: visibleTab == .settings) {
+                        selectSettings()
+                    }
+                    Spacer()
                 }
                 .padding(.top, 12)
                 .padding(.bottom, 14)   // 拉开与 StatusBar 的呼吸距离，避免双重背景硬边
                 .frame(maxWidth: .infinity)
 
-                // —— 内容区：按可见 tab 切换 ——
+                // —— 内容区：按可见场所切换 ——
                 Group {
                     switch visibleTab {
                     case .chat:
-                        chatStack
+                        momentStack
+                    case .inbox:
+                        FloatingThoughtsScene()
                     case .history:
-                        HistoryView()
+                        ClosureScene()
                     case .settings:
                         SettingsView()
                     default:
-                        chatStack
+                        momentStack
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .transition(.opacity)
             }
 
-            // —— 仅在 chat tab 显示 popover / overlay 层 ——
+            // —— 仅任务保留为 popover；浮念已升为主场所 ——
             if visibleTab == .chat {
-                if state.selectedTab == .tasks || state.selectedTab == .inbox {
+                if state.selectedTab == .tasks {
                     popoverBackdrop
                     popoverPanel
                 }
@@ -62,12 +71,13 @@ struct MainTabView: View {
                 if let pending = state.postMortemQueue.first {
                     postMortemOverlay(task: pending)
                 }
-                if state.showScheduledTaskForm {
-                    scheduledTaskFormOverlay
-                }
                 if state.showDreamingReview && !state.pendingLearnings.isEmpty {
                     dreamingReviewOverlay
                 }
+            }
+
+            if state.showScheduledTaskForm {
+                scheduledTaskFormOverlay
             }
         }
         .animation(AppAnimations.smooth, value: visibleTab)
@@ -77,13 +87,11 @@ struct MainTabView: View {
         .animation(AppAnimations.quick, value: state.showMorningRitual)
         .animation(AppAnimations.quick, value: state.nextCandidates.count)
         .animation(AppAnimations.quick, value: state.postMortemQueue.count)
-        .animation(AppAnimations.quick, value: state.showScheduledTaskForm)
         .animation(AppAnimations.quick, value: state.showDreamingReview)
         .onAppear { syncVisibleTab(from: state.selectedTab) }
         .onChange(of: state.selectedTab) { _, newValue in
-            // 外部代码（AppDelegate / 槽位命令 / openInbox）设置 selectedTab 时，
-            // 如果是 chat/history/settings 切换可见 tab；
-            // 如果是 tasks/inbox 则把可见 tab 拉回 chat，让 popover 显示。
+            // 外部代码（AppDelegate / 槽位命令 / openInbox）设置 selectedTab 时：
+            // chat/inbox/history/settings 切换可见场所；tasks 保留为此刻上的 popover。
             syncVisibleTab(from: newValue)
         }
     }
@@ -98,16 +106,23 @@ struct MainTabView: View {
         }
     }
 
+    private func selectSettings() {
+        withAnimation(AppAnimations.smooth) {
+            visibleTab = .settings
+            state.selectedTab = .settings
+        }
+    }
+
     private func syncVisibleTab(from selected: AppTab) {
         switch selected {
-        case .chat, .history, .settings:
+        case .chat, .inbox, .history, .settings:
             if visibleTab != selected {
                 withAnimation(AppAnimations.smooth) {
                     visibleTab = selected
                 }
             }
-        case .tasks, .inbox:
-            // 显示 popover 的同时确保底层在 chat tab
+        case .tasks:
+            // 显示任务 popover 的同时确保底层在此刻
             if visibleTab != .chat {
                 withAnimation(AppAnimations.smooth) {
                     visibleTab = .chat
@@ -116,11 +131,22 @@ struct MainTabView: View {
         }
     }
 
-    // MARK: - Chat 内容栈（StatusBar + 仪式提示 + ProgressPing + ChatView）
+    // MARK: - 此刻内容栈（StatusBar + 状态面板 + ProgressPing + ChatView）
 
-    private var chatStack: some View {
+    private var momentStack: some View {
         VStack(spacing: 0) {
             StatusBar(activeTimerTitle: state.activeTask?.title)
+
+            if state.wishClearingSession != nil {
+                QuietWishClearingDesk()
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 8)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            } else {
+                QuietMomentDashboard()
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 8)
+            }
 
             // 未锁定焦点 常驻提示（TimelineView 驱动小时判断，用户"完成仪式"后会自动消失）
             TimelineView(.periodic(from: .now, by: 60)) { _ in
@@ -266,7 +292,6 @@ struct MainTabView: View {
             Group {
                 switch state.selectedTab {
                 case .tasks: TasksPopoverContent()
-                case .inbox: InboxView()
                 default: EmptyView()
                 }
             }
@@ -287,7 +312,7 @@ struct MainTabView: View {
     }
 }
 
-// MARK: - 新 Tab 栏（胶囊设计，3 颗：对话 / 历史 / 设置）
+// MARK: - Quiet Field 场所导航（此刻 / 浮念 / 收束）
 
 struct NewTabBar: View {
     let visibleTab: AppTab
@@ -353,15 +378,43 @@ struct TabButton: View {
     }
 }
 
+struct SettingsGearButton: View {
+    let isSelected: Bool
+    let action: () -> Void
+    @Environment(\.theme) private var theme
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: isSelected ? "gearshape.fill" : "gearshape")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(isSelected ? Color.white : (hovering ? theme.textPrimary : theme.textSecondary))
+                .frame(width: 34, height: 34)
+                .background(
+                    Circle()
+                        .fill(isSelected
+                              ? AnyShapeStyle(theme.bubbleUserStyle)
+                              : AnyShapeStyle(hovering ? theme.textTertiary.opacity(0.12) : Color.clear))
+                )
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help("设置")
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.18), value: hovering)
+        .animation(.easeOut(duration: 0.22), value: isSelected)
+    }
+}
+
 // MARK: - AppTab 扩展（填充图标，仅胶囊用）
 
 extension AppTab {
     var iconFilled: String {
         switch self {
-        case .chat: return "bubble.left.and.text.bubble.right.fill"
+        case .chat: return "dot.circle.fill"
         case .tasks: return "checklist"
         case .inbox: return "tray.fill"
-        case .history: return "clock.fill"
+        case .history: return "checkmark.seal.fill"
         case .settings: return "gearshape.fill"
         }
     }
@@ -376,7 +429,7 @@ struct TasksPopoverContent: View {
     private var activeTasks: [TaskItem] {
         state.tasks
             .filter { $0.status == .inProgress || $0.status == .pending }
-            .sorted { lhs, _ in lhs.status == .inProgress }
+            .sorted { ($0.status == .inProgress ? 0 : 1) < ($1.status == .inProgress ? 0 : 1) }
     }
 
     private var archivedTasks: [TaskItem] {

@@ -109,6 +109,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     /// 互相触发布局刷新；圆角裁切由普通 NSView 容器承担。
     weak var panelHostingLayerView: NSView?
     var quickCapturePanel: NSPanel?
+    /// Quiet Field 新前门预览面板（v2 原型，独立于主面板与 Quick Capture，零侵入）
+    var quietFieldPreviewPanel: NSPanel?
     var statusItem: NSStatusItem?
     var popover: NSPopover?
 
@@ -127,7 +129,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     // panel 高 620，宽 760。NewTabBar 在 ContentView 顶部，padding(.top, 12) + bar(~46) + padding(.bottom, 14) = 72pt
     // 胶囊本身在屏幕居中，宽度约 280pt → x ∈ [240, 520] 是胶囊范围（不拖，让胶囊响应点击）
     private static let dragHotZoneTopHeight: CGFloat = 72   // 顶部 72pt 是 TabBar 区域
-    private static let dragHotZoneCapsuleHalfWidth: CGFloat = 150  // 胶囊估算半宽，中心 ±150pt = 300pt 总宽（保守留点 margin）
+    private static let dragHotZoneCapsuleHalfWidth: CGFloat = 190  // 场所胶囊 + 设置齿轮，中心 ±190pt = 380pt 总宽（保守留点 margin）
 
     var state = AppState.shared
     private var cancellables = Set<AnyCancellable>()
@@ -463,6 +465,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 if let tv = NSApp.keyWindow?.firstResponder as? NSTextView, tv.hasMarkedText() {
                     return event
                 }
+                if AppDelegate.shared?.quietFieldPreviewPanel?.isVisible == true {
+                    dlog("[LOCAL-HOTKEY] Escape - closing Quiet Field preview!")
+                    DispatchQueue.main.async { AppDelegate.shared?.hideQuietFieldPreview() }
+                    return nil
+                }
                 if AppDelegate.shared?.quickCapturePanel?.isVisible == true {
                     dlog("[LOCAL-HOTKEY] Escape - closing quick capture!")
                     DispatchQueue.main.async { AppDelegate.shared?.hideQuickCapture() }
@@ -538,20 +545,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         let spaceID = CarbonHotkeyManager.shared.register(
             keyCode: 49, modifiers: optionMod,
-            onPress: { [weak self] in self?.handleOptSpacePress() },
-            onRelease: { [weak self] in self?.handleOptSpaceRelease() }
+            onPress: { [weak self] in self?.handleOptSpacePress() }
         )
         if spaceID == nil {
-            OPCLogger.shared.log(.error, "hotkey", "Opt+Space (keyCode 49) 注册失败 — 该组合可能已被系统占用（macOS 默认: 输入法切换 / Spotlight 候选）。请到「系统设置 → 键盘 → 键盘快捷键 → 输入源」检查是否启用了 Option+Space。")
+            OPCLogger.shared.log(.error, "hotkey", "Opt+Space (keyCode 49) 注册失败 — 该组合可能已被系统占用（macOS 默认: 输入法切换）。请到「系统设置 → 键盘 → 键盘快捷键 → 输入源」检查是否启用了 Option+Space。")
         }
 
-        let backtickID = CarbonHotkeyManager.shared.register(
-            keyCode: 50, modifiers: optionMod,
-            onPress: { [weak self] in self?.handleOptBacktickPress() }
-        )
-        if backtickID == nil {
-            OPCLogger.shared.log(.error, "hotkey", "Opt+` (keyCode 50) 注册失败 — 该组合可能已被其他 App 占用")
-        }
         OPCLogger.shared.log(.info, "hotkey", CarbonHotkeyManager.shared.currentRegistrationsSnapshot())
 
         HotkeyHealthMonitor.shared.start()
@@ -563,39 +562,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let now = Date()
         if now.timeIntervalSince(lastSpaceKeyDownAt) < 0.2 { return }
         lastSpaceKeyDownAt = now
-        hotkeyDownTime = now
-        isLongPressTriggered = false
-
-        // 语音输入入口暂时隐藏：长按不再启动录音，只确保主面板打开。
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 500_000_000)
-            guard let self = self, self.hotkeyDownTime != nil else { return }
-            self.isLongPressTriggered = true
-            if let p = self.panel, !p.isVisible { self.showPanel() }
-        }
-    }
-
-    private func handleOptSpaceRelease() {
-        guard let downTime = hotkeyDownTime else { return }
-        let duration = Date().timeIntervalSince(downTime)
-        hotkeyDownTime = nil
-
-        if duration < 0.5 && !isLongPressTriggered {
+        // 入口模式分流：classic = 旧三胶囊主面板；quietField（默认）= 新前门。即时生效，无需重注册。
+        if state.config.entryMode == "classic" {
             togglePanel()
-        } else if isLongPressTriggered {
-            Task { @MainActor in
-                if VoiceService.shared.isRecording {
-                    VoiceService.shared.stopRecording()
-                }
-            }
+        } else {
+            toggleQuietFieldPreview()
         }
-    }
-
-    private func handleOptBacktickPress() {
-        let now = Date()
-        if now.timeIntervalSince(lastQuickCaptureAt) < 0.3 { return }
-        lastQuickCaptureAt = now
-        toggleQuickCapture()
     }
 
     // 旧的 NSEvent global monitor 版本 handleHotkey 已被 Carbon 版替换
@@ -673,32 +645,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func refreshStatusItemTitle() {
         guard let button = statusItem?.button else { return }
-        guard let active = state.activeTask,
-              active.status == .inProgress,
-              let remaining = active.remainingSeconds else {
-            button.attributedTitle = NSAttributedString(string: "")
-            button.title = ""
-            return
-        }
 
-        let truncated: String = active.title.count > 8
-            ? String(active.title.prefix(7)) + "…"
-            : active.title
-        let mm = remaining / 60
-        let ss = remaining % 60
-        let text = " \(truncated) \(String(format: "%02d:%02d", mm, ss))"
-
+        let text: String
         let color: NSColor
         let weight: NSFont.Weight
-        switch state.menuBarStatus {
-        case .warning:
+
+        if let active = state.activeTask,
+           active.status == .inProgress,
+           let remaining = active.remainingSeconds {
+            let truncated: String = active.title.count > 8
+                ? String(active.title.prefix(7)) + "…"
+                : active.title
+            let mm = remaining / 60
+            let ss = remaining % 60
+            text = " \(truncated) \(String(format: "%02d:%02d", mm, ss))"
+            switch state.menuBarStatus {
+            case .warning:
+                color = .systemYellow
+                weight = .semibold
+            case .overtime:
+                color = .systemRed
+                weight = .bold
+            default:
+                color = .labelColor
+                weight = .regular
+            }
+        } else if state.unreadNoteCount > 0 {
+            text = " 浮念 \(min(state.unreadNoteCount, 9))"
             color = .systemYellow
-            weight = .semibold
-        case .overtime:
+            weight = .medium
+        } else if state.hasUnreadReminders {
+            text = " 待看"
             color = .systemRed
-            weight = .bold
-        default:
-            color = .labelColor
+            weight = .medium
+        } else {
+            text = " 静场"
+            color = .secondaryLabelColor
             weight = .regular
         }
 
@@ -991,6 +973,90 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return panel
     }
 
+    // MARK: - Quiet Field 新前门预览（v2 原型）
+
+    func showQuietFieldPreview() {
+        if quietFieldPreviewPanel == nil {
+            quietFieldPreviewPanel = makeQuietFieldPreviewPanel()
+        }
+        guard let p = quietFieldPreviewPanel else { return }
+
+        // 每次唤起重建内容 → 干净的折叠记一下 bar + 入场动效重放
+        p.contentView = makeQuietFieldHostingView()
+
+        let mouseLocation = NSEvent.mouseLocation
+        let targetScreen = NSScreen.screens.first { NSMouseInRect(mouseLocation, $0.frame, false) }
+            ?? NSScreen.main
+        if let screen = targetScreen {
+            let visible = screen.visibleFrame
+            let x = visible.origin.x + (visible.width - p.frame.width) / 2
+            let y = visible.origin.y + visible.height - p.frame.height - 56
+            p.setFrameOrigin(NSPoint(x: x, y: y))
+        }
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        // 打开主题动画门：AuroraBackground 等的 TimelineView 以 isPanelVisible 为暂停开关
+        state.isPanelVisible = true
+        p.alphaValue = 1.0
+        p.makeKeyAndOrderFront(nil)
+
+        // 对标旧 showPanel：重置静默计时（早晨仪式先不做，不在开门时触发）
+        state.markActivity()
+    }
+
+    func hideQuietFieldPreview() {
+        guard let p = quietFieldPreviewPanel, p.isVisible else { return }
+        p.orderOut(nil)
+        // 主面板没开着才把动画门关回去
+        state.isPanelVisible = (panel?.isVisible == true)
+    }
+
+    func toggleQuietFieldPreview() {
+        if let p = quietFieldPreviewPanel, p.isVisible {
+            hideQuietFieldPreview()
+        } else {
+            showQuietFieldPreview()
+        }
+    }
+
+    private func makeQuietFieldPreviewPanel() -> NSPanel {
+        // 复用 QuickCapturePanel 子类：已处理 canBecomeKey + 标准编辑命令转发
+        let panel = QuickCapturePanel(
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 700),
+            styleMask: [.fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        panel.titlebarAppearsTransparent = true
+        panel.titleVisibility = .hidden
+        panel.level = .floating
+        panel.isOpaque = false
+        panel.backgroundColor = .clear          // 折叠态只露 bar，其余透明
+        panel.hasShadow = false                 // 阴影由 QuietFieldShell 自绘
+        panel.isReleasedWhenClosed = false
+        panel.hidesOnDeactivate = false
+        panel.delegate = self
+        return panel
+    }
+
+    /// 每次唤起都用新的 hosting view：保证折叠态/记一下模式/输入框状态干净、入场动效重放。
+    private func makeQuietFieldHostingView() -> NSView {
+        let root = QuietFieldShell()
+            .environmentObject(state)
+            .environment(\.theme, ThemeProvider.shared.current)   // 跟随当前主题，带上其背景动画
+            .environment(\.fontStyle, FontStyleSet.from(
+                FontStyleID(rawValue: state.config.fontStyleID) ?? .readable
+            ))
+            .preferredColorScheme(
+                (ColorSchemeOverride(rawValue: state.config.colorSchemeOverride) ?? .system).resolved
+            )
+        let host = NSHostingView(rootView: root)
+        host.frame = NSRect(x: 0, y: 0, width: 600, height: 700)
+        host.autoresizingMask = [.width, .height]
+        host.wantsLayer = true
+        host.layer?.backgroundColor = NSColor.clear.cgColor
+        return host
+    }
+
     @MainActor func resetTimerNotifications() {
         dlog("[DIAG] resetTimerNotifications called")
         state.resetTimerFlags()
@@ -1015,6 +1081,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         } else if closed === quickCapturePanel {
             dlog("[EVENT] QuickCapture resigned key - closing")
             hideQuickCapture()
+        } else if closed === quietFieldPreviewPanel {
+            dlog("[EVENT] Quiet Field preview resigned key - closing")
+            hideQuietFieldPreview()
         }
     }
 
@@ -1055,6 +1124,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         openItem.target = self
         menu.addItem(openItem)
 
+        let previewItem = NSMenuItem(title: "✨ 预览新前门 (Quiet Field)", action: #selector(menuOpenQuietFieldPreview), keyEquivalent: "")
+        previewItem.target = self
+        menu.addItem(previewItem)
+
         menu.addItem(NSMenuItem.separator())
 
         let settingsItem = NSMenuItem(title: "设置...", action: #selector(menuOpenSettings), keyEquivalent: ",")
@@ -1068,30 +1141,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return menu
     }
 
-    @objc private func menuDebugCycleStatus() {
-        // 末尾停在 focus（绿色），避免循环回 idle 导致"看起来没变色"
-        let sequence: [MenuBarStatus] = [.idle, .focus, .warning, .overtime, .rest, .focus]
-        Task { @MainActor in
-            for status in sequence {
-                state.menuBarStatus = status
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
-            }
+    /// 按入口模式打开主入口：classic = 经典三胶囊面板；quietField = 新前门。
+    private func openPrimaryEntry() {
+        if state.config.entryMode == "classic" {
+            showPanel()
+        } else {
+            showQuietFieldPreview()
         }
-    }
-
-    @objc private func menuDebugToggleDot() {
-        state.hasUnreadReminders.toggle()
     }
 
     @objc private func menuOpenPanel() {
         dlog("[MENU] Open panel")
-        showPanel()
+        openPrimaryEntry()
+    }
+
+    @objc private func menuOpenQuietFieldPreview() {
+        dlog("[MENU] Open Quiet Field preview")
+        popover?.close()
+        showQuietFieldPreview()
     }
 
     @objc private func menuOpenSettings() {
         dlog("[MENU] Open settings")
-        showPanel()
-        state.selectedTab = .settings
+        if state.config.entryMode == "classic" {
+            showPanel()
+            state.selectedTab = .settings
+        } else {
+            // 前门：唤起后点齿轮进设置
+            showQuietFieldPreview()
+        }
     }
 
     @objc private func menuQuit() {
@@ -1103,6 +1181,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         dlog("[EVENT] activeSpaceDidChange - closing any visible popups")
         if panel?.isVisible == true { hidePanel() }
         if quickCapturePanel?.isVisible == true { hideQuickCapture() }
+        if quietFieldPreviewPanel?.isVisible == true { hideQuietFieldPreview() }
     }
 }
 
@@ -1117,7 +1196,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         // 先完成 delegate 合约，再异步推进 UI。避免把 completionHandler 捕获进 @MainActor closure
         completionHandler()
         Task { @MainActor in
-            AppDelegate.shared?.showPanel()
+            AppDelegate.shared?.openPrimaryEntry()
             AppState.shared.selectedTab = .chat
             AppState.shared.hasUnreadReminders = false
         }

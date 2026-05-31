@@ -59,40 +59,6 @@ public final class OPCLogger: @unchecked Sendable {
             }
         }
 
-        // error 级别 → fire-and-forget 上报 Notion Error Logs DB
-        if level == .error {
-            reportToNotion(level: level, category: category, message: message, file: file, line: line)
-        }
-    }
-
-    // MARK: - Notion 上报（fire-and-forget）
-
-    private static let notionErrorDBId = "585ef8ff17d54ff095240c477b6c74ba"
-
-    private func reportToNotion(level: LogLevel, category: String, message: String, file: String, line: Int) {
-        // 不加锁、不阻塞。如果 token 没配就跳过。
-        Task.detached(priority: .utility) {
-            let token = CredentialCache.shared.getNotionToken()
-            guard !token.isEmpty else { return }
-
-            let title = "[\(level.rawValue)] \(category) — \(message.prefix(60))"
-            let now = ISO8601DateFormatter().string(from: Date())
-            let properties: [String: Any] = [
-                "标题": ["title": [["text": ["content": String(title)]]]],
-                "时间": ["date": ["start": now]],
-                "级别": ["select": ["name": level.rawValue]],
-                "类别": ["rich_text": [["text": ["content": category]]]],
-                "消息": ["rich_text": [["text": ["content": String(message.prefix(2000))]]]],
-                "状态": ["select": ["name": "未处理"]],
-                "source_file": ["rich_text": [["text": ["content": "\(file):\(line)"]]]]
-            ]
-
-            guard let data = try? JSONSerialization.data(withJSONObject: properties) else { return }
-            _ = try? await NotionService.shared.createPage(
-                databaseId: Self.notionErrorDBId,
-                propertiesData: data
-            )
-        }
     }
 
     /// 返回当日日志文件路径（已保证父目录存在）。

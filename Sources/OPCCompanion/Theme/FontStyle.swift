@@ -41,7 +41,7 @@ public enum FontStyleID: String, CaseIterable, Codable, Sendable {
         case .readable: return ThemeID.allCases   // 通用
         case .rounded:  return [.aurora]
         case .serif:    return [.stoa]
-        case .display:  return [.flow, .aurora]
+        case .display:  return [.flow, .aurora, .quietField]
         }
     }
 }

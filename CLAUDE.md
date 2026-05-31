@@ -9,7 +9,7 @@ macOS 原生菜单栏 AI 助手应用。Swift + SwiftUI + AppKit 混合架构，
 - **语言：** Swift 6.3
 - **UI：** SwiftUI（视图层）+ AppKit（NSPanel, NSStatusItem, NSEvent）
 - **语音：** Speech framework (SFSpeechRecognizer) + AVFoundation (AVSpeechSynthesizer)
-- **AI 后端：** MiniMax API（`M2-her` 模型，HTTPS 直连）
+- **AI 后端：** MiniMax API（`MiniMax-M2.7` 模型，HTTPS 直连）
 - **Notion：** Notion API v1 直连（HTTP）
 - **HTTP：** URLSession（不引入第三方库）
 - **凭证：** macOS Keychain（API key 和 Notion token）
@@ -34,7 +34,7 @@ let url = URL(string: "https://api.minimax.io/v1/text/chatcompletion_v2")!
 
 // Request body
 let body: [String: Any] = [
-    "model": "M2-her",
+    "model": "MiniMax-M2.7",
     "messages": messagesHistory,        // 包含 system/user/assistant/tool 的完整历史
     "tools": toolsDefinition,           // function calling tools
     "stream": true,                     // 流式响应

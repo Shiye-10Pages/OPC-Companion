@@ -149,20 +149,32 @@ public final class MemoryService: @unchecked Sendable {
         let url = urlForDaily(now)
         let existing = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
         let updated = insertEntry(into: existing, section: section, entry: trimmed, now: now)
-        try? updated.write(to: url, atomically: true, encoding: .utf8)
+        do {
+            try updated.write(to: url, atomically: true, encoding: .utf8)
+        } catch {
+            OPCLogger.shared.log(.error, "memory", "daily note 写入失败 \(url.lastPathComponent): \(error.localizedDescription)")
+        }
     }
 
     public func writeMemory(_ content: String) {
         guard !shouldSkipIO else { return }
         lock.lock(); defer { lock.unlock() }
-        try? content.write(to: rootURL.appendingPathComponent("MEMORY.md"), atomically: true, encoding: .utf8)
+        do {
+            try content.write(to: rootURL.appendingPathComponent("MEMORY.md"), atomically: true, encoding: .utf8)
+        } catch {
+            OPCLogger.shared.log(.error, "memory", "MEMORY.md 写入失败: \(error.localizedDescription)")
+        }
         invalidateSnapshotLocked()
     }
 
     public func writeUser(_ content: String) {
         guard !shouldSkipIO else { return }
         lock.lock(); defer { lock.unlock() }
-        try? content.write(to: rootURL.appendingPathComponent("USER.md"), atomically: true, encoding: .utf8)
+        do {
+            try content.write(to: rootURL.appendingPathComponent("USER.md"), atomically: true, encoding: .utf8)
+        } catch {
+            OPCLogger.shared.log(.error, "memory", "USER.md 写入失败: \(error.localizedDescription)")
+        }
         invalidateSnapshotLocked()
     }
 

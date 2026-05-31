@@ -12,6 +12,8 @@ public struct AppConfig: Codable, Sendable {
     public var colorSchemeOverride: String
     /// 字体方案 ID（FontStyleID 字符串）
     public var fontStyleID: String
+    /// 入口模式：quietField（Quiet Field 前门）/ classic（旧三胶囊面板）
+    public var entryMode: String
 
     public init(
         hotkey: String = "option+space",
@@ -22,7 +24,8 @@ public struct AppConfig: Codable, Sendable {
         proxyConfig: ProxyConfig = ProxyConfig(),
         themeID: String = "aurora",
         colorSchemeOverride: String = "system",
-        fontStyleID: String = "readable"
+        fontStyleID: String = "readable",
+        entryMode: String = "quietField"
     ) {
         self.hotkey = hotkey
         self.systemPromptFile = systemPromptFile
@@ -33,6 +36,7 @@ public struct AppConfig: Codable, Sendable {
         self.themeID = themeID
         self.colorSchemeOverride = colorSchemeOverride
         self.fontStyleID = fontStyleID
+        self.entryMode = entryMode
     }
 
     public init(from decoder: Decoder) throws {
@@ -48,11 +52,12 @@ public struct AppConfig: Codable, Sendable {
         self.themeID = try c.decodeIfPresent(String.self, forKey: .themeID) ?? "aurora"
         self.colorSchemeOverride = try c.decodeIfPresent(String.self, forKey: .colorSchemeOverride) ?? "system"
         self.fontStyleID = try c.decodeIfPresent(String.self, forKey: .fontStyleID) ?? "readable"
+        self.entryMode = try c.decodeIfPresent(String.self, forKey: .entryMode) ?? "quietField"
     }
 
     enum CodingKeys: String, CodingKey {
         case hotkey, systemPromptFile, notionDatabaseIds, voice, apiConfig, proxyConfig, themeID
-        case colorSchemeOverride, fontStyleID
+        case colorSchemeOverride, fontStyleID, entryMode
     }
 }
 

@@ -26,12 +26,41 @@ struct SettingsView: View {
         TTSService.availableVoices()
     }
 
+    private var entryModeBinding: Binding<String> {
+        Binding(
+            get: { state.config.entryMode },
+            set: { newValue in
+                var cfg = state.config
+                cfg.entryMode = newValue
+                state.config = cfg
+                state.saveConfig()
+            }
+        )
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 setupChecklist
 
                 ThemeSection()
+
+                Divider()
+
+                // 入口模式（Option+空格 唤起哪种界面）
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("入口模式")
+                        .font(.headline)
+                    Text("Option+空格 唤起哪种界面（即时生效）")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Picker("", selection: entryModeBinding) {
+                        Text("Quiet Field 前门（折叠 bar，可展开）").tag("quietField")
+                        Text("经典面板（三胶囊全功能）").tag("classic")
+                    }
+                    .pickerStyle(.radioGroup)
+                    .labelsHidden()
+                }
 
                 Divider()
 

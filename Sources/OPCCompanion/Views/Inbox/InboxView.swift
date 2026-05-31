@@ -245,7 +245,7 @@ struct InboxView: View {
                 .foregroundColor(.secondary)
             Text("还没有随手记")
                 .foregroundColor(.secondary)
-            Text("按 Option + ` 快速捕获，或在对话框以 / 开头")
+            Text("按 Option+空格 唤起前门快速记一下，或在对话框以 / 开头")
                 .font(.caption)
                 .foregroundColor(.secondary)
         }

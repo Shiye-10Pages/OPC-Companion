@@ -522,23 +522,6 @@ public enum ToolExecutor {
         }
     }
 
-    @MainActor
-    private static func executeUpdateNotion(args: [String: Any]) async -> String {
-        guard let pageId = args["page_id"] as? String, !pageId.isEmpty else {
-            return errorResult("缺少 page_id")
-        }
-        guard let properties = args["properties"] as? [String: Any],
-              let propertiesData = try? JSONSerialization.data(withJSONObject: properties, options: []) else {
-            return errorResult("缺少或无法序列化 properties")
-        }
-        do {
-            _ = try await NotionService.shared.updatePage(pageId: pageId, propertiesData: propertiesData)
-            return successResult(["page_id": pageId])
-        } catch {
-            return errorResult(error.localizedDescription)
-        }
-    }
-
     // MARK: - Helpers
 
     private static func parseArgs(_ arguments: String) -> [String: Any] {

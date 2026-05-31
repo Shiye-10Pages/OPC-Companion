@@ -241,6 +241,8 @@ public final class VoiceService: NSObject, ObservableObject {
                     self.transcript = text
                 case .error(let msg):
                     logError("voice", "recognition error: \(msg)")
+                    self.isRecording = false
+                    AppState.shared.showBanner("语音识别出错，请改用文字", kind: .warning, duration: 3.0)
                 case .ended:
                     self.isRecording = false
                 }

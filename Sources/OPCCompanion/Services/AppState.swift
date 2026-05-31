@@ -24,6 +24,8 @@ public final class AppState: ObservableObject {
 
     // "我想"清扫会话：/聊聊 触发后激活，带 10 分钟时限和进入前的锚点任务
     @Published public var wishClearingSession: WishClearingSession?
+    @Published public var wishClearingFocusNoteID: UUID?
+    @Published public var wishClearingHandledNoteIds: Set<UUID> = []
 
     public var unreadNoteCount: Int {
         notes.filter { $0.status == .pending }.count
@@ -681,22 +683,77 @@ public final class AppState: ObservableObject {
         if let current = wishClearingSession, !current.expired {
             return
         }
+        wishClearingHandledNoteIds.removeAll()
         wishClearingSession = WishClearingSession(
             startedAt: Date(),
             anchorTask: anchorTask,
             timeBudgetMinutes: 10,
             processedCount: 0
         )
+        wishClearingFocusNoteID = wishClearingCandidates.first?.id
     }
 
     public func endWishClearingSession() {
         wishClearingSession = nil
+        wishClearingFocusNoteID = nil
+        wishClearingHandledNoteIds.removeAll()
     }
 
     public func incrementWishClearingProcessed() {
         guard var session = wishClearingSession else { return }
         session.processedCount += 1
         wishClearingSession = session
+    }
+
+    public var wishClearingCandidates: [Note] {
+        notes
+            .filter { note in
+                (note.status == .pending || note.status == .expired)
+                    && !wishClearingHandledNoteIds.contains(note.id)
+            }
+            .sorted { a, b in
+                if a.kind != b.kind { return a.kind == .wish }
+                return a.capturedAt > b.capturedAt
+            }
+    }
+
+    public var currentWishClearingNote: Note? {
+        if let id = wishClearingFocusNoteID,
+           let focused = wishClearingCandidates.first(where: { $0.id == id }) {
+            return focused
+        }
+        return wishClearingCandidates.first
+    }
+
+    public func decideWish(_ note: Note, decision: WishClearingDecision, reason: String = "") {
+        guard notes.contains(where: { $0.id == note.id }) else {
+            showBanner("这条浮念已不存在", kind: .warning)
+            return
+        }
+
+        let cleanReason = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        let entry = "我想清扫 → \(decision.memoryLabel)：\(note.content)\(cleanReason.isEmpty ? "" : "（\(cleanReason)）")"
+        MemoryService.shared.appendToToday(.notes, entry: entry)
+
+        wishClearingHandledNoteIds.insert(note.id)
+        switch decision {
+        case .now:
+            _ = addPinnedTask(title: note.content)
+            markNoteDone(note)
+            showBanner("已放到此刻", kind: .success)
+        case .promote:
+            _ = addPinnedTask(title: note.content)
+            markNoteDone(note)
+            showBanner("已转任务", kind: .success)
+        case .keep:
+            showBanner("已先留着", kind: .info)
+        case .delete:
+            deleteNote(note)
+            showBanner("已删除", kind: .info)
+        }
+
+        incrementWishClearingProcessed()
+        wishClearingFocusNoteID = wishClearingCandidates.first?.id
     }
 
     /// 从 Inbox 的 "聊聊这条" 按钮触发：切到 chat tab，启动 session，发送 `/聊聊 <内容摘要>`。
@@ -715,6 +772,7 @@ public final class AppState: ObservableObject {
             let anchor = activeTask?.title ?? tasks.first(where: { $0.status == .pending })?.title
             startWishClearingSession(anchorTask: anchor)
         }
+        wishClearingFocusNoteID = note.id
 
         // 对话流和发给 AI 的内容都用 note 全文，保证 AI 能精确聊这一条，用户也能在对话里看到自己记的原话
         let userMessage = "/聊聊 \(note.content)"
@@ -1374,20 +1432,20 @@ public enum AppTab: String, CaseIterable {
 
     var title: String {
         switch self {
-        case .chat: return "对话"
+        case .chat: return "此刻"
         case .tasks: return "任务"
-        case .inbox: return "收件箱"
-        case .history: return "历史"
+        case .inbox: return "浮念"
+        case .history: return "收束"
         case .settings: return "设置"
         }
     }
 
     var icon: String {
         switch self {
-        case .chat: return "bubble.left.and.text.bubble.right"
+        case .chat: return "dot.circle"
         case .tasks: return "checklist"
         case .inbox: return "tray"
-        case .history: return "clock"
+        case .history: return "checkmark.seal"
         case .settings: return "gear"
         }
     }
@@ -1421,6 +1479,22 @@ public struct WishClearingSession: Sendable {
 
     public var expired: Bool {
         elapsedSeconds >= timeBudgetMinutes * 60
+    }
+}
+
+public enum WishClearingDecision: String, Sendable {
+    case now
+    case promote
+    case keep
+    case delete
+
+    public var memoryLabel: String {
+        switch self {
+        case .now: return "立即做"
+        case .promote: return "升级为任务"
+        case .keep: return "先留着"
+        case .delete: return "删除"
+        }
     }
 }
 
