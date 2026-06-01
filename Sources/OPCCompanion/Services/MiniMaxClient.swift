@@ -2,7 +2,7 @@ import Foundation
 
 public final class MiniMaxClient: @unchecked Sendable {
     public static let defaultEndpoint = URL(string: "https://api.minimax.io/v1/text/chatcompletion_v2")!
-    public static let defaultModel = "M2-her"
+    public static let defaultModel = "MiniMax-M2.7"
 
     public struct Config: Sendable {
         public var apiKey: String

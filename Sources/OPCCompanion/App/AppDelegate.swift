@@ -12,31 +12,6 @@ func dlog(_ message: String) {
 
 final class RedDotView: NSView {}
 
-final class YellowBadgeView: NSView {
-    var text: String = "" {
-        didSet { needsDisplay = true }
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-        NSColor.systemYellow.setFill()
-        NSBezierPath(ovalIn: bounds).fill()
-        guard !text.isEmpty else { return }
-        let font = NSFont.systemFont(ofSize: 8, weight: .bold)
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: NSColor.black
-        ]
-        let nsText = text as NSString
-        let textSize = nsText.size(withAttributes: attrs)
-        let origin = NSPoint(
-            x: (bounds.width - textSize.width) / 2,
-            y: (bounds.height - textSize.height) / 2
-        )
-        nsText.draw(at: origin, withAttributes: attrs)
-    }
-}
-
 /// 在 styleMask 不含 .titled 的 NSPanel 里，AppKit 不会自动把 Edit 菜单
 /// 的 cut:/copy:/paste:/selectAll: 路由到 SwiftUI TextField/SecureField。
 /// 我们在 panel 层显式重派发，保证粘贴在 SecureField（设置页 API Key 等）里也工作。
@@ -619,19 +594,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         state.$menuBarStatus
             .combineLatest(state.$hasUnreadReminders, pendingNotesPub)
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] status, hasUnreadReminder, pendingNoteCount in
+            .sink { [weak self] status, hasUnreadReminder, _ in
                 self?.updateStatusItemAppearance(
                     status: status,
-                    hasUnreadReminder: hasUnreadReminder,
-                    pendingNoteCount: pendingNoteCount
+                    hasUnreadReminder: hasUnreadReminder
                 )
             }
             .store(in: &cancellables)
 
         updateStatusItemAppearance(
             status: state.menuBarStatus,
-            hasUnreadReminder: state.hasUnreadReminders,
-            pendingNoteCount: state.unreadNoteCount
+            hasUnreadReminder: state.hasUnreadReminders
         )
 
         // 每秒刷新菜单栏文字（展示正在进行任务名 + 倒计时）
@@ -671,7 +644,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 weight = .regular
             }
         } else if state.unreadNoteCount > 0 {
-            text = " 浮念 \(min(state.unreadNoteCount, 9))"
+            let noteCount = state.unreadNoteCount > 9 ? "9+" : "\(state.unreadNoteCount)"
+            text = " 浮念 \(noteCount)"
             color = .systemYellow
             weight = .medium
         } else if state.hasUnreadReminders {
@@ -691,7 +665,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         button.attributedTitle = attributed
     }
 
-    private func updateStatusItemAppearance(status: MenuBarStatus, hasUnreadReminder: Bool, pendingNoteCount: Int) {
+    private func updateStatusItemAppearance(status: MenuBarStatus, hasUnreadReminder: Bool) {
         guard let button = statusItem?.button else {
             dlog("[STATUS] updateStatusItemAppearance skipped — button is nil")
             return
@@ -709,11 +683,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             button.contentTintColor = nil
         }
 
-        // 清除旧角标（兼容历史 YellowBadgeView 残留）
         button.subviews.compactMap { $0 as? RedDotView }.forEach { $0.removeFromSuperview() }
-        button.subviews.compactMap { $0 as? YellowBadgeView }.forEach { $0.removeFromSuperview() }
 
-        // 红点只表示未读提醒；随手记用黄色数字，任务状态由图标颜色/标题表达。
+        // 红点只表示未读提醒；浮念数量与任务状态由标题表达。
         if hasUnreadReminder {
             let dotSize: CGFloat = 6
             let frame = NSRect(
@@ -730,19 +702,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             button.addSubview(dot)
         }
 
-        if pendingNoteCount > 0 {
-            let badgeSize: CGFloat = 14
-            let frame = NSRect(
-                x: button.bounds.width - badgeSize + 2,
-                y: -1,
-                width: badgeSize,
-                height: badgeSize
-            )
-            let badge = YellowBadgeView(frame: frame)
-            badge.text = pendingNoteCount > 9 ? "9+" : "\(pendingNoteCount)"
-            badge.autoresizingMask = [.minXMargin, .maxYMargin]
-            button.addSubview(badge)
-        }
+        refreshStatusItemTitle()
     }
 
     private static func tintedStatusImage(symbolName: String, color: NSColor) -> NSImage? {
@@ -957,8 +917,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             autoStartVoice: false,
             onSubmit: { [weak self] text, inputMode, kind in
                 let source: Note.Source = (inputMode == .voice) ? .hotkeyVoice : .hotkeyText
-                AppState.shared.captureNote(content: text, source: source, inputMode: inputMode, kind: kind)
-                self?.hideQuickCapture()
+                let saved = AppState.shared.captureNote(content: text, source: source, inputMode: inputMode, kind: kind)
+                if saved {
+                    self?.hideQuickCapture()
+                }
+                return saved
             },
             onCancel: { [weak self] in
                 self?.hideQuickCapture()
@@ -1134,6 +1097,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         settingsItem.target = self
         menu.addItem(settingsItem)
 
+        let resourcesItem = NSMenuItem(title: "更多AI资源", action: #selector(menuOpenShiyeAIResources), keyEquivalent: "")
+        resourcesItem.target = self
+        menu.addItem(resourcesItem)
+
+        menu.addItem(NSMenuItem.separator())
+
         let quitItem = NSMenuItem(title: "退出", action: #selector(menuQuit), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
@@ -1170,6 +1139,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             // 前门：唤起后点齿轮进设置
             showQuietFieldPreview()
         }
+    }
+
+    @objc private func menuOpenShiyeAIResources() {
+        dlog("[MENU] Open ShiyeAI resources")
+        AppBrand.openResources()
     }
 
     @objc private func menuQuit() {

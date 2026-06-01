@@ -23,6 +23,7 @@ cp "Resources/Info.plist" "$APP_BUNDLE/Contents/"
 
 # 复制 App 图标（Finder 中 .app 显示；本应用 LSUIElement 不进 Dock）
 cp "Resources/AppIcon.icns" "$APP_BUNDLE/Contents/Resources/"
+cp "Resources/ShiyeAI-Xiaohongshu-QR.png" "$APP_BUNDLE/Contents/Resources/"
 
 echo "==> 验证 bundle..."
 plutil -lint "$APP_BUNDLE/Contents/Info.plist"

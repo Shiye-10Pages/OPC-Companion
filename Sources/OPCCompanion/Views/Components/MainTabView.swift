@@ -177,16 +177,28 @@ struct MainTabView: View {
             ScheduledTaskForm(
                 task: state.editingScheduledTask,
                 onSave: { newTask in
+                    let previousTasks = state.scheduledTasks
                     if let index = state.scheduledTasks.firstIndex(where: { $0.id == newTask.id }) {
                         state.scheduledTasks[index] = newTask
                     } else {
                         state.scheduledTasks.append(newTask)
                     }
-                    state.saveScheduledTasks()
+                    guard state.saveScheduledTasks() else {
+                        state.scheduledTasks = previousTasks
+                        state.showBanner("保存定时任务失败，已恢复原状态（详见日志）", kind: .error, duration: 5.0)
+                        return false
+                    }
+                    return true
                 },
                 onDelete: { task in
+                    let previousTasks = state.scheduledTasks
                     state.scheduledTasks.removeAll { $0.id == task.id }
-                    state.saveScheduledTasks()
+                    guard state.saveScheduledTasks() else {
+                        state.scheduledTasks = previousTasks
+                        state.showBanner("删除定时任务失败，已恢复原状态（详见日志）", kind: .error, duration: 5.0)
+                        return false
+                    }
+                    return true
                 },
                 onCancel: { state.showScheduledTaskForm = false }
             )

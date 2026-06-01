@@ -36,7 +36,8 @@ public final class DreamingService {
     }
 
     /// 晋升一条 learn 到 MEMORY.md 的 `## 关键决策与教训` section 末尾（不打乱现有顺序）。
-    public func promote(entry: String) {
+    @discardableResult
+    public func promote(entry: String) -> Bool {
         var lines = MemoryService.shared.readMemory().components(separatedBy: "\n")
         let section = "## 关键决策与教训"
 
@@ -52,7 +53,7 @@ public final class DreamingService {
         } else {
             lines.append(contentsOf: ["", section, "- \(entry)"])
         }
-        MemoryService.shared.writeMemory(lines.joined(separator: "\n"))
+        return MemoryService.shared.writeMemory(lines.joined(separator: "\n"))
     }
 
     private func extractLearnSection(from content: String) -> [String] {

@@ -262,19 +262,25 @@ public enum ToolExecutor {
             if let active = state.activeTask, active.status == .inProgress {
                 return errorResult("已有活跃计时 [\(active.title)]，请先 complete_timer / cancel_timer 再起新计时")
             }
-            state.startTimer(task: task, minutes: minutes)
+            guard state.startTimer(task: task, minutes: minutes) != nil else {
+                return errorResult("计时任务保存失败，请重试")
+            }
             return successResult(["task": task, "minutes": minutes])
 
         case "complete_timer":
             let note = args["note"] as? String
-            state.completeCurrentTimer(note: note)
+            guard state.completeCurrentTimer(note: note) else {
+                return errorResult("当前没有活跃计时，或完成状态保存失败")
+            }
             return successResult([:])
 
         case "extend_timer":
             guard let minutes = args["minutes"] as? Int, minutes != 0 else {
                 return errorResult("分钟数不能为 0")
             }
-            state.extendCurrentTimer(by: minutes)
+            guard state.extendCurrentTimer(by: minutes) else {
+                return errorResult("当前没有活跃计时，或计时调整保存失败")
+            }
             return successResult(["minutes": minutes])
 
         case "cancel_timer":
@@ -282,7 +288,9 @@ public enum ToolExecutor {
                 return errorResult("当前没有活跃计时可取消")
             }
             let reason = args["reason"] as? String
-            state.cancelCurrentTimer(reason: reason)
+            guard state.cancelCurrentTimer(reason: reason) else {
+                return errorResult("取消计时保存失败，请重试")
+            }
             return successResult(["cancelled": true])
 
         case "mark_task_done":
@@ -307,7 +315,9 @@ public enum ToolExecutor {
             guard let title = args["title"] as? String, !title.isEmpty else {
                 return errorResult("标题为空")
             }
-            state.addPinnedTask(title: title)
+            guard state.addPinnedTask(title: title) != nil else {
+                return errorResult("任务保存失败，请重试")
+            }
             return successResult(["title": title])
 
         case "review_inbox":
@@ -373,20 +383,24 @@ public enum ToolExecutor {
 
         // daily note 条目用中文术语
         let entry = "我想清扫 → \(decision)：\(content)\(reason.isEmpty ? "" : "（\(reason)）")"
-        MemoryService.shared.appendToToday(.notes, entry: entry)
 
         var effect = "已记录"
         // 兼容中英文术语（enum 已改中文，但保留英文别名以防 AI 带习惯）
         switch decision {
         case "删除", "delete":
             if let note = matchingNote {
-                state.deleteNote(note)
+                guard state.deleteNote(note) else {
+                    return errorResult("随手记删除失败，请重试")
+                }
                 effect = "已删除"
             }
         case "立即做", "升级为任务", "now", "promote":
-            _ = state.addPinnedTask(title: content)
             if let note = matchingNote {
-                state.markNoteDone(note)
+                guard state.promoteNoteToPinnedTask(note, title: content) else {
+                    return errorResult("随手记升级任务失败，请重试")
+                }
+            } else if state.addPinnedTask(title: content) == nil {
+                return errorResult("任务保存失败，请重试")
             }
             effect = "已升级为今日任务"
         case "先留着", "defer":
@@ -394,6 +408,7 @@ public enum ToolExecutor {
         default:
             break
         }
+        MemoryService.shared.appendToToday(.notes, entry: entry)
         return successResult(["decision": decision, "effect": effect, "matched": matchingNote != nil])
     }
 

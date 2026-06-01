@@ -359,7 +359,9 @@ struct QuietFieldShell: View {
             sendToAI(trimmed)
         } else {
             // 折叠 = 记一下：本地接住，不走 AI；闪一下"已接住"，随即关闭
-            state.captureNote(content: trimmed, source: .hotkeyText, inputMode: .text, kind: .note)
+            guard state.captureNote(content: trimmed, source: .hotkeyText, inputMode: .text, kind: .note) else {
+                return
+            }
             inputText = ""
             withAnimation(AppAnimations.quick) { captured = true }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {

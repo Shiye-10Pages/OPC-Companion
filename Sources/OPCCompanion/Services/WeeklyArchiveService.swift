@@ -17,19 +17,10 @@ public final class WeeklyArchiveService {
         guard !Self.isRunningTests else { return }
         guard !isGenerating else { return }
 
-        let calendar = isoCalendar()
-        let comps = calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now)
-        guard let year = comps.yearForWeekOfYear, let week = comps.weekOfYear else { return }
-
-        // 年初 week=1 → week-1=0，跨年用 ISO 周日历正确回退
-        var targetYear = year
-        var targetWeek = week - 1
-        if targetWeek < 1 {
-            targetYear -= 1
-            let prevYearEnd = calendar.date(from: DateComponents(weekday: 2, weekOfYear: 52, yearForWeekOfYear: targetYear))!
-            let prevComps = calendar.dateComponents([.weekOfYear], from: prevYearEnd)
-            targetWeek = prevComps.weekOfYear ?? 52
-        }
+        let calendar = Self.isoCalendar()
+        guard let target = Self.previousISOWeek(before: now) else { return }
+        let targetYear = target.year
+        let targetWeek = target.week
         let targetKey = String(format: "%04d-W%02d", targetYear, targetWeek)
         let weeklyURL = Self.weeklyDir().appendingPathComponent("\(targetKey).md")
 
@@ -43,11 +34,11 @@ public final class WeeklyArchiveService {
         isGenerating = true
         defer { isGenerating = false }
 
-        await generateWeekly(year: year, week: week - 1, writeTo: weeklyURL)
+        await generateWeekly(year: targetYear, week: targetWeek, writeTo: weeklyURL)
     }
 
     private func generateWeekly(year: Int, week: Int, writeTo url: URL) async {
-        let calendar = isoCalendar()
+        let calendar = Self.isoCalendar()
         var dateComps = DateComponents()
         dateComps.yearForWeekOfYear = year
         dateComps.weekOfYear = week
@@ -101,12 +92,17 @@ public final class WeeklyArchiveService {
             let cleaned = summary.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !cleaned.isEmpty else { return }
 
-            Self.ensureWeeklyDir()
+            try Self.ensureWeeklyDir()
             let header = "# \(year)-W\(String(format: "%02d", week))\n\n"
-            try? (header + cleaned + "\n").write(to: url, atomically: true, encoding: .utf8)
+            try (header + cleaned + "\n").write(to: url, atomically: true, encoding: .utf8)
 
             await MainActor.run {
-                AppState.shared.showBanner("本周周报已生成", kind: .info, duration: 4.0)
+                AppState.shared.showBanner(
+                    "本周周报已生成 · 想看十页AI如何使用 AI？",
+                    kind: .info,
+                    duration: 8.0,
+                    action: .openShiyeAIResources
+                )
             }
         } catch {
             OPCLogger.shared.log(.error, "weekly", "周报生成失败: \(error.localizedDescription)")
@@ -116,7 +112,15 @@ public final class WeeklyArchiveService {
         }
     }
 
-    private func isoCalendar() -> Calendar {
+    nonisolated static func previousISOWeek(before now: Date) -> (year: Int, week: Int)? {
+        let calendar = isoCalendar()
+        guard let previousWeek = calendar.date(byAdding: .weekOfYear, value: -1, to: now) else { return nil }
+        let comps = calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: previousWeek)
+        guard let year = comps.yearForWeekOfYear, let week = comps.weekOfYear else { return nil }
+        return (year, week)
+    }
+
+    nonisolated private static func isoCalendar() -> Calendar {
         var c = Calendar(identifier: .iso8601)
         c.firstWeekday = 2  // Monday
         c.minimumDaysInFirstWeek = 4
@@ -129,10 +133,10 @@ public final class WeeklyArchiveService {
             .appendingPathComponent("weekly")
     }
 
-    private static func ensureWeeklyDir() {
+    private static func ensureWeeklyDir() throws {
         let dir = weeklyDir()
         if !FileManager.default.fileExists(atPath: dir.path) {
-            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         }
     }
 }

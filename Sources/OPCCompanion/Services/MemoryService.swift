@@ -137,45 +137,57 @@ public final class MemoryService: @unchecked Sendable {
 
     /// 追加一条 bullet 到今日 daily note 对应 section。
     /// Section 不存在时按固定顺序插入；文件不存在时先写文件头。
-    public func appendToToday(_ section: DailySection, entry: String, now: Date = Date()) {
-        guard !shouldSkipIO else { return }
+    @discardableResult
+    public func appendToToday(_ section: DailySection, entry: String, now: Date = Date()) -> Bool {
+        guard !shouldSkipIO else { return true }
         let trimmed = entry.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty else { return true }
 
         lock.lock()
         defer { lock.unlock() }
 
-        ensureRootDirectory()
+        guard ensureRootDirectory() else { return false }
         let url = urlForDaily(now)
         let existing = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
         let updated = insertEntry(into: existing, section: section, entry: trimmed, now: now)
         do {
             try updated.write(to: url, atomically: true, encoding: .utf8)
+            invalidateSnapshotLocked()
+            return true
         } catch {
             OPCLogger.shared.log(.error, "memory", "daily note 写入失败 \(url.lastPathComponent): \(error.localizedDescription)")
+            return false
         }
     }
 
-    public func writeMemory(_ content: String) {
-        guard !shouldSkipIO else { return }
+    @discardableResult
+    public func writeMemory(_ content: String) -> Bool {
+        guard !shouldSkipIO else { return true }
         lock.lock(); defer { lock.unlock() }
+        guard ensureRootDirectory() else { return false }
         do {
             try content.write(to: rootURL.appendingPathComponent("MEMORY.md"), atomically: true, encoding: .utf8)
+            invalidateSnapshotLocked()
+            return true
         } catch {
             OPCLogger.shared.log(.error, "memory", "MEMORY.md 写入失败: \(error.localizedDescription)")
+            return false
         }
-        invalidateSnapshotLocked()
     }
 
-    public func writeUser(_ content: String) {
-        guard !shouldSkipIO else { return }
+    @discardableResult
+    public func writeUser(_ content: String) -> Bool {
+        guard !shouldSkipIO else { return true }
         lock.lock(); defer { lock.unlock() }
+        guard ensureRootDirectory() else { return false }
         do {
             try content.write(to: rootURL.appendingPathComponent("USER.md"), atomically: true, encoding: .utf8)
+            invalidateSnapshotLocked()
+            return true
         } catch {
             OPCLogger.shared.log(.error, "memory", "USER.md 写入失败: \(error.localizedDescription)")
+            return false
         }
-        invalidateSnapshotLocked()
     }
 
     // MARK: - Paths
@@ -275,24 +287,43 @@ public final class MemoryService: @unchecked Sendable {
         return lines.joined(separator: "\n")
     }
 
-    private func ensureRootDirectory() {
+    @discardableResult
+    private func ensureRootDirectory() -> Bool {
         let fm = FileManager.default
-        if !fm.fileExists(atPath: rootURL.path) {
-            try? fm.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        var isDirectory: ObjCBool = false
+        if fm.fileExists(atPath: rootURL.path, isDirectory: &isDirectory) {
+            guard isDirectory.boolValue else {
+                OPCLogger.shared.log(.error, "memory", "记忆根路径不是目录 \(rootURL.path)")
+                return false
+            }
+            return true
+        }
+        do {
+            try fm.createDirectory(at: rootURL, withIntermediateDirectories: true)
+            return true
+        } catch {
+            OPCLogger.shared.log(.error, "memory", "创建记忆目录失败 \(rootURL.path): \(error.localizedDescription)")
+            return false
         }
     }
 
     private func bootstrapIfNeeded() {
-        let fm = FileManager.default
-        if !fm.fileExists(atPath: rootURL.path) {
-            try? fm.createDirectory(at: rootURL, withIntermediateDirectories: true)
-        }
+        guard ensureRootDirectory() else { return }
 
+        let fm = FileManager.default
         if !fm.fileExists(atPath: memoryFileURL.path) {
-            try? Self.memoryTemplate.write(to: memoryFileURL, atomically: true, encoding: .utf8)
+            do {
+                try Self.memoryTemplate.write(to: memoryFileURL, atomically: true, encoding: .utf8)
+            } catch {
+                OPCLogger.shared.log(.error, "memory", "初始化 MEMORY.md 失败: \(error.localizedDescription)")
+            }
         }
         if !fm.fileExists(atPath: userFileURL.path) {
-            try? Self.userTemplate.write(to: userFileURL, atomically: true, encoding: .utf8)
+            do {
+                try Self.userTemplate.write(to: userFileURL, atomically: true, encoding: .utf8)
+            } catch {
+                OPCLogger.shared.log(.error, "memory", "初始化 USER.md 失败: \(error.localizedDescription)")
+            }
         }
     }
 

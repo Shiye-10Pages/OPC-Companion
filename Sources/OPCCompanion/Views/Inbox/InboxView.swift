@@ -149,14 +149,22 @@ struct InboxView: View {
     }
 
     private func batchMarkDone() {
+        var attempted = 0
+        var completed = 0
         for id in selectedNoteIds {
             if let note = state.notes.first(where: { $0.id == id && $0.status == .pending }) {
-                state.markNoteDone(note)
+                attempted += 1
+                if state.markNoteDone(note) {
+                    completed += 1
+                }
             }
         }
-        let count = selectedNoteIds.count
         selectedNoteIds.removeAll()
-        state.showBanner("已完成 \(count) 条", kind: .success)
+        if completed == attempted, completed > 0 {
+            state.showBanner("已完成 \(completed) 条", kind: .success)
+        } else if completed > 0 {
+            state.showBanner("已完成 \(completed)/\(attempted) 条，部分状态保存失败（详见日志）", kind: .warning, duration: 5.0)
+        }
     }
 
     private func batchDelete() {
@@ -172,8 +180,9 @@ struct InboxView: View {
             alert.alertStyle = .warning
             guard alert.runModal() == .alertFirstButtonReturn else { return }
         }
-        state.batchDeleteNotesWithUndo(ids: ids)
-        selectedNoteIds.removeAll()
+        if state.batchDeleteNotesWithUndo(ids: ids) {
+            selectedNoteIds.removeAll()
+        }
     }
 
     @ViewBuilder

@@ -29,7 +29,9 @@ public final class SessionArchiveService {
         // 首次运行 / lastSessionDate 空：记录 today，不做归档
         if state.lastSessionDate.isEmpty {
             state.lastSessionDate = todayKey
-            state.saveSessionState()
+            if !state.saveSessionState() {
+                state.showBanner("会话日期保存失败，下次启动可能重复检查归档（详见日志）", kind: .warning, duration: 5.0)
+            }
             return
         }
 
@@ -41,20 +43,26 @@ public final class SessionArchiveService {
         let archiveKey = state.lastSessionDate
         guard let archiveDate = Self.date(from: archiveKey) else {
             state.lastSessionDate = todayKey
-            state.saveSessionState()
+            if !state.saveSessionState() {
+                state.showBanner("会话日期修复失败，下次启动可能重复检查归档（详见日志）", kind: .warning, duration: 5.0)
+            }
             return
         }
 
-        await performArchive(state: state, archiveKey: archiveKey, archiveDate: archiveDate)
+        guard await performArchive(state: state, archiveKey: archiveKey, archiveDate: archiveDate) else {
+            return
+        }
 
         state.lastSessionDate = todayKey
-        state.saveSessionState()
+        if !state.saveSessionState() {
+            state.showBanner("归档已完成，但会话日期保存失败，下次启动可能重复归档（详见日志）", kind: .warning, duration: 5.0)
+        }
     }
 
-    private func performArchive(state: AppState, archiveKey: String, archiveDate: Date) async {
+    private func performArchive(state: AppState, archiveKey: String, archiveDate: Date) async -> Bool {
         // C2：流式中跳过归档，避免把正在追加 delta 的 assistant 气泡当作昨日归档删掉
         if state.isLoading {
-            return
+            return false
         }
 
         // C3：in-memory 归档源必须按 archiveDate 过滤（仅保留 timestamp 属于目标日的消息），
@@ -74,25 +82,31 @@ public final class SessionArchiveService {
 
         guard !archiveMessages.isEmpty else {
             state.messages.removeAll { archivedIds.contains($0.id) }
-            return
+            return true
         }
 
         let summary = await generateArchiveSummary(messages: archiveMessages)
         let trimmed = summary.trimmingCharacters(in: .whitespacesAndNewlines)
+        let saved: Bool
         if !trimmed.isEmpty {
-            MemoryService.shared.appendToToday(.conversation, entry: trimmed, now: archiveDate)
+            saved = MemoryService.shared.appendToToday(.conversation, entry: trimmed, now: archiveDate)
         } else {
             // N12：摘要生成失败时写一条标记，避免 daily note 静默缺失"对话主线"让用户困惑
-            MemoryService.shared.appendToToday(
+            saved = MemoryService.shared.appendToToday(
                 .conversation,
                 entry: "⚠ 昨日归档摘要生成失败（查看应用日志或重试）",
                 now: archiveDate
             )
         }
+        guard saved else {
+            state.showBanner("昨日归档保存失败，消息已保留，稍后会重试（详见日志）", kind: .warning, duration: 5.0)
+            return false
+        }
 
         // 只移除 snapshot 里的消息，保留 AI 调用期间用户新加的
         state.messages.removeAll { archivedIds.contains($0.id) }
         state.showBanner("已进入新会话 · 昨日要点已归档", kind: .info, duration: 4.0)
+        return true
     }
 
     private func generateArchiveSummary(messages: [Message]) async -> String {

@@ -323,7 +323,7 @@ OPC 伴侣是一个常驻 macOS 的 AI 工作节奏教练。它通过快捷键�
   "ai": {
     "provider": "minimax",
     "endpoint": "https://api.minimax.io/v1/text/chatcompletion_v2",
-    "model": "M2-her",
+    "model": "MiniMax-M2.7",
     "api_key_keychain": "com.shiye.opc-companion.minimax-key",
     "max_tokens": 2048,
     "temperature": 0.7
@@ -394,7 +394,7 @@ OPC 伴侣是一个常驻 macOS 的 AI 工作节奏教练。它通过快捷键�
 
 - **Endpoint：** `https://api.minimax.io/v1/text/chatcompletion_v2`
 - **认证：** `Authorization: Bearer <API_KEY>` header
-- **模型：** `M2-her`（MiniMax 最新对话模型，支持 function calling）
+- **模型：** `MiniMax-M2.7`（支持 function calling）
 - **对话维护：** 本地保存 messages 数组，每次请求带完整历史（或截断至最近 N 轮）
 - **流式响应：** `stream: true`，UI 实时渲染，体验比等整句更流畅
 

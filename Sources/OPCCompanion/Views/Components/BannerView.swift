@@ -56,6 +56,7 @@ struct BannerView: View {
         switch action {
         case .openMorningRitual: return "立刻做"
         case .undoBatchDelete: return "撤销"
+        case .openShiyeAIResources: return "看看"
         }
     }
 }

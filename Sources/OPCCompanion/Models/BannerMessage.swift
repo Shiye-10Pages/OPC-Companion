@@ -18,6 +18,7 @@ public struct BannerMessage: Identifiable, Equatable, Sendable {
     public enum Action: String, Sendable, Equatable {
         case openMorningRitual  // 点击后弹出早晨仪式（条件过期则不动）
         case undoBatchDelete    // 恢复刚才批量删除的随手记（5s 内有效）
+        case openShiyeAIResources
     }
 
     public init(id: UUID = UUID(), text: String, kind: Kind = .info, action: Action? = nil) {

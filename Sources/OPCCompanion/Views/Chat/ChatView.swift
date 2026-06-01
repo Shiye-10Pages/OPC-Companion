@@ -6,6 +6,7 @@ struct ChatView: View {
     @State private var inputText = ""
     @FocusState private var isInputFocused: Bool
     @State private var isNearBottom = true  // 底部 sentinel 是否在视窗里
+    @AppStorage(AppBrand.onboardingCompletionKey) private var hasCompletedInitialOnboarding = false
 
     private static let bottomAnchorId = "__chat_bottom_anchor__"
 
@@ -139,6 +140,9 @@ struct ChatView: View {
             .animation(AppAnimations.quick, value: notionConfirm.showConfirmation)
             .onAppear {
                 focusInputSoon()
+                if !CredentialCache.shared.getMinimaxAPIKey().isEmpty {
+                    hasCompletedInitialOnboarding = true
+                }
             }
             .onChange(of: state.isPanelVisible) { _, isVisible in
                 if isVisible {
@@ -179,6 +183,18 @@ struct ChatView: View {
             }
             .buttonStyle(.borderedProminent)
             .padding(.top, 4)
+
+            if !hasCompletedInitialOnboarding {
+                VStack(spacing: 3) {
+                    Text("十页AI打造")
+                        .font(.caption.weight(.medium))
+                    Text("如果它帮你把思绪放回原位，欢迎来看看我们还在做什么。")
+                        .font(.caption2)
+                }
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.top, 10)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(40)
@@ -240,9 +256,10 @@ struct ChatView: View {
                 }
 
                 // 非命令 → 落到随手记
-                state.captureNote(content: body, source: .slashInPanel, inputMode: inputMode)
-                state.showBanner("已存随手记", kind: .success)
-                MemoryService.shared.appendToToday(.notes, entry: body)
+                if state.captureNote(content: body, source: .slashInPanel, inputMode: inputMode) {
+                    state.showBanner("已存随手记", kind: .success)
+                    MemoryService.shared.appendToToday(.notes, entry: body)
+                }
                 return
             }
         }
@@ -513,8 +530,11 @@ struct TaskCard: View {
             state.menuBarStatus = .idle
             state.resetTimerFlags()
         }
-        state.saveTasks()
-        state.showBanner("已完成：\(task.title)", kind: .success)
+        if state.saveTasks() {
+            state.showBanner("已完成：\(task.title)", kind: .success)
+        } else {
+            state.showBanner("任务已完成，但保存失败，重启后可能丢失（详见日志）", kind: .warning, duration: 5.0)
+        }
         let note = AppState.estimateVsActualNote(for: state.tasks[idx])
         MemoryService.shared.appendToToday(.tasks, entry: "完成：\(task.title)\(note)")
         state.enqueuePostMortem(state.tasks[idx])
@@ -534,7 +554,9 @@ struct TaskCard: View {
             state.menuBarStatus = .idle
             state.resetTimerFlags()
         }
-        state.saveTasks()
+        if !state.saveTasks() {
+            state.showBanner("任务已取消，但保存失败，重启后可能丢失（详见日志）", kind: .warning, duration: 5.0)
+        }
         state.enqueuePostMortem(state.tasks[idx])
         if state.tasks[idx].focusMode {
             Task { await FocusModeService.shared.disable() }
@@ -551,8 +573,11 @@ struct TaskCard: View {
             state.menuBarStatus = .focus
             state.resetTimerFlags()
         }
-        state.saveTasks()
-        state.showBanner("已延长 \(minutes) 分钟", kind: .info)
+        if state.saveTasks() {
+            state.showBanner("已延长 \(minutes) 分钟", kind: .info)
+        } else {
+            state.showBanner("计时已延长，但保存失败，重启后可能丢失（详见日志）", kind: .warning, duration: 5.0)
+        }
         MemoryService.shared.appendToToday(.tasks, entry: "延长 \(minutes) 分钟：\(task.title)")
     }
 
@@ -566,8 +591,11 @@ struct TaskCard: View {
         state.activeTask = state.tasks[idx]
         state.menuBarStatus = .focus
         state.resetTimerFlags()
-        state.saveTasks()
-        state.showBanner("已启动计时：\(task.title) · \(minutes) 分钟", kind: .success)
+        if state.saveTasks() {
+            state.showBanner("已启动计时：\(task.title) · \(minutes) 分钟", kind: .success)
+        } else {
+            state.showBanner("计时已启动，但保存失败，重启后可能丢失（详见日志）", kind: .warning, duration: 5.0)
+        }
         MemoryService.shared.appendToToday(.tasks, entry: "启动计时：\(task.title) · \(minutes) 分钟")
     }
 
@@ -577,8 +605,11 @@ struct TaskCard: View {
         state.tasks[idx].status = .pending
         state.tasks[idx].timerStart = nil
         state.tasks[idx].timerEnd = nil
-        state.saveTasks()
-        state.showBanner("已撤销：\(task.title)", kind: .info)
+        if state.saveTasks() {
+            state.showBanner("已撤销：\(task.title)", kind: .info)
+        } else {
+            state.showBanner("任务已撤销，但保存失败，重启后可能丢失（详见日志）", kind: .warning, duration: 5.0)
+        }
         MemoryService.shared.appendToToday(.tasks, entry: "撤销：\(task.title)")
     }
 

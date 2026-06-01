@@ -23,40 +23,65 @@ public final class InboxService: @unchecked Sendable {
         }
     }
 
-    public func append(_ note: Note) {
+    @discardableResult
+    public func append(_ note: Note) -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        ensureDirectory()
+        guard ensureDirectory() else { return false }
 
         guard let encoded = try? JSONEncoder().encode(note),
               let line = String(data: encoded, encoding: .utf8),
               let lineData = line.data(using: .utf8),
-              let newlineData = "\n".data(using: .utf8) else { return }
+              let newlineData = "\n".data(using: .utf8) else {
+            logError("persist", "InboxService.append 编码失败 id=\(note.id)")
+            return false
+        }
 
         let fm = FileManager.default
-        if fm.fileExists(atPath: fileURL.path) {
-            if let handle = try? FileHandle(forWritingTo: fileURL) {
+        do {
+            if fm.fileExists(atPath: fileURL.path) {
+                let handle = try FileHandle(forWritingTo: fileURL)
                 defer { try? handle.close() }
-                handle.seekToEndOfFile()
-                handle.write(newlineData)
-                handle.write(lineData)
+                try handle.seekToEnd()
+                var payload = newlineData
+                payload.append(lineData)
+                try handle.write(contentsOf: payload)
+            } else {
+                try line.write(to: fileURL, atomically: true, encoding: .utf8)
             }
-        } else {
-            try? line.write(to: fileURL, atomically: true, encoding: .utf8)
+            return true
+        } catch {
+            logError("persist", "InboxService.append 写入失败 \(fileURL.path): \(error.localizedDescription)")
+            return false
         }
     }
 
-    public func saveAll(_ notes: [Note]) {
+    @discardableResult
+    public func saveAll(_ notes: [Note]) -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        ensureDirectory()
+        guard ensureDirectory() else { return false }
 
-        let lines = notes.compactMap { note -> String? in
-            guard let data = try? JSONEncoder().encode(note) else { return nil }
-            return String(data: data, encoding: .utf8)
+        let lines: [String]
+        do {
+            lines = try notes.map { note in
+                let data = try JSONEncoder().encode(note)
+                guard let line = String(data: data, encoding: .utf8) else {
+                    throw CocoaError(.fileWriteInapplicableStringEncoding)
+                }
+                return line
+            }
+        } catch {
+            logError("persist", "InboxService.saveAll 编码失败: \(error.localizedDescription)")
+            return false
         }
-        let body = lines.joined(separator: "\n")
-        try? body.write(to: fileURL, atomically: true, encoding: .utf8)
+        do {
+            try lines.joined(separator: "\n").write(to: fileURL, atomically: true, encoding: .utf8)
+            return true
+        } catch {
+            logError("persist", "InboxService.saveAll 写入失败 \(fileURL.path): \(error.localizedDescription)")
+            return false
+        }
     }
 
     public static var defaultURL: URL {
@@ -70,6 +95,7 @@ public final class InboxService: @unchecked Sendable {
     @MainActor
     public func expirePendingNotesOlderThan48h(state: AppState) {
         let cutoff = Date().addingTimeInterval(-48 * 3600)
+        let original = state.notes
         var changed = false
         for i in state.notes.indices
             where state.notes[i].status == .pending
@@ -79,15 +105,28 @@ public final class InboxService: @unchecked Sendable {
             state.notes[i].processedAt = Date()
             changed = true
         }
-        if changed {
-            saveAll(state.notes)
+        if changed, !saveAll(state.notes) {
+            state.notes = original
+            state.showBanner("随手记状态保存失败，过期标记未生效（详见日志）", kind: .error, duration: 5.0)
         }
     }
 
-    private func ensureDirectory() {
+    private func ensureDirectory() -> Bool {
         let dir = fileURL.deletingLastPathComponent()
-        if !FileManager.default.fileExists(atPath: dir.path) {
-            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        var isDirectory: ObjCBool = false
+        if FileManager.default.fileExists(atPath: dir.path, isDirectory: &isDirectory) {
+            guard isDirectory.boolValue else {
+                logError("persist", "InboxService 父路径不是目录 \(dir.path)")
+                return false
+            }
+            return true
+        }
+        do {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            return true
+        } catch {
+            logError("persist", "InboxService 创建目录失败 \(dir.path): \(error.localizedDescription)")
+            return false
         }
     }
 }

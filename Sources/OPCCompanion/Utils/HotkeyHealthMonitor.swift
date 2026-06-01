@@ -9,10 +9,10 @@ import Carbon.HIToolbox
 ///   App 无法直接消除，只能监测 + 提示用户。
 ///
 /// 监视策略：
-/// 1. 启动 6s 自检；若 Carbon callback 从未 fire，根据 `IsSecureEventInputEnabled()`
-///    分两种 case 推 banner。
+/// 1. 启动 6s 自检；仅当 `IsSecureEventInputEnabled()` 明确为 true 时推 warning banner。
 /// 2. 每 5s 重检一次，最多 6 次（启动后 36s 内）；一旦 callback fire 或 Secure Input
 ///    解除，立刻清掉警告，发一条"已恢复" info banner（3s）。
+/// 3. callback 从未 fire 只能说明用户还没按过热键，不能据此判断热键失效。
 @MainActor
 final class HotkeyHealthMonitor {
     static let shared = HotkeyHealthMonitor()
@@ -52,11 +52,12 @@ final class HotkeyHealthMonitor {
             warnedActive = false
             AppState.shared.showBanner("全局热键已恢复", kind: .success, duration: 3.0)
         }
+        stop()
     }
 
     private func evaluate(isInitialCheck: Bool) {
         let fired = CarbonHotkeyManager.shared.callbackEverFired
-        let secure = CarbonHotkeyManager.shared.callbackEverFired ? false : CarbonHotkeyManager.isSecureInputEnabled()
+        let secure = CarbonHotkeyManager.isSecureInputEnabled()
         OPCLogger.shared.log(
             .info,
             "hotkey",
@@ -73,28 +74,24 @@ final class HotkeyHealthMonitor {
             return
         }
 
-        // 还没 fire 过
-        if isInitialCheck {
-            // 第一次检测，无论 secure 与否都推 banner
-            if secure {
+        if secure {
+            if !warnedActive {
                 AppState.shared.showBanner(
                     "⚠️ 系统启用了安全输入（某个 App 在接收密码），全局热键暂时无效。等那个 App 失焦后会自动恢复。",
                     kind: .warning,
                     duration: 8.0
                 )
-            } else {
-                AppState.shared.showBanner(
-                    "⚠️ 全局热键无响应。可能被其他 App（Alfred / Raycast / 启动器）抢占，或系统输入法占用了 Opt+Space。",
-                    kind: .warning,
-                    duration: 8.0
-                )
             }
             warnedActive = true
-        } else {
-            // 后续重检：Secure Input 解除（之前 secure=true，本次=false）也算"恢复中"
-            // 这里 fired 仍是 false，所以只在 secure 由 true 转 false 时推一条提示。
-            // 简化处理：不维护"上一次 secure"，等 fired 真的 true 时再推恢复 banner。
-            // 但如果 secure 由 true → false 仍然没人按热键，也不打扰用户。
+            return
+        }
+
+        if warnedActive {
+            warnedActive = false
+            AppState.shared.showBanner("全局热键已恢复", kind: .success, duration: 3.0)
+            stop()
+        } else if isInitialCheck {
+            OPCLogger.shared.log(.info, "hotkey", "[secure-input] no blocking evidence; keep monitoring silently")
         }
     }
 }

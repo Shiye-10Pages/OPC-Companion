@@ -59,8 +59,11 @@ struct NextCandidatesView: View {
                 state.menuBarStatus = .focus
                 state.resetTimerFlags()
                 state.lastProgressPingAt = Date()
-                state.saveTasks()
-                state.showBanner("已启动：\(task.title) · \(m) 分钟", kind: .success)
+                if state.saveTasks() {
+                    state.showBanner("已启动：\(task.title) · \(m) 分钟", kind: .success)
+                } else {
+                    state.showBanner("计时已启动，但保存失败，重启后可能丢失（详见日志）", kind: .warning, duration: 5.0)
+                }
                 MemoryService.shared.appendToToday(.tasks, entry: "启动计时：\(task.title) · \(m) 分钟")
             }
             state.nextCandidates = []

@@ -12,12 +12,21 @@ public enum KeychainHelper {
     @discardableResult
     public static func save(account: String, value: String, service: String = KeychainHelper.service) -> Bool {
         guard let data = value.data(using: .utf8) else { return false }
-        let deleteQuery: [String: Any] = [
+        let lookupQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account
         ]
-        SecItemDelete(deleteQuery as CFDictionary)
+        let updateStatus = SecItemUpdate(
+            lookupQuery as CFDictionary,
+            [kSecValueData as String: data] as CFDictionary
+        )
+        if updateStatus == errSecSuccess {
+            return true
+        }
+        guard updateStatus == errSecItemNotFound else {
+            return false
+        }
 
         let addQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,

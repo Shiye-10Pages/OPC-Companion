@@ -53,7 +53,10 @@ struct DreamingReviewView: View {
 
             HStack(spacing: 6) {
                 HoverIconButton(systemImage: "checkmark.circle.fill", help: "记住") {
-                    DreamingService.shared.promote(entry: entry)
+                    guard DreamingService.shared.promote(entry: entry) else {
+                        state.showBanner("长期记忆保存失败，请重试（详见日志）", kind: .error, duration: 5.0)
+                        return
+                    }
                     state.pendingLearnings.removeAll { $0.id == itemId }
                     state.showBanner("已记入长期记忆", kind: .success, duration: 2.0)
                     if state.pendingLearnings.isEmpty { state.showDreamingReview = false }

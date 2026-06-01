@@ -18,4 +18,9 @@ final class ChatEngineTests: XCTestCase {
 
         XCTAssertEqual(config.normalizedBaseURL, APIConfig.miniMaxInternationalBaseURL)
     }
+
+    func testMiniMaxClientUsesConfiguredDefaultModel() {
+        XCTAssertEqual(MiniMaxClient.defaultModel, APIConfig.miniMaxDefaultModel)
+        XCTAssertEqual(APIConfig.miniMaxDefaultModel, "MiniMax-M2.7")
+    }
 }

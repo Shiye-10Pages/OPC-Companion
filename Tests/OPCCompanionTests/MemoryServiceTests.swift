@@ -49,7 +49,7 @@ final class MemoryServiceTests: XCTestCase {
         let service = MemoryService(rootURL: tempRoot)
         let now = makeDate(hour: 9, minute: 30)
 
-        service.appendToToday(.tasks, entry: "写代码", now: now)
+        XCTAssertTrue(service.appendToToday(.tasks, entry: "写代码", now: now))
 
         let url = tempRoot.appendingPathComponent("\(ymd(now)).md")
         let content = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
@@ -116,6 +116,26 @@ final class MemoryServiceTests: XCTestCase {
         XCTAssertTrue(snapshot.contains("## 近 \(MemoryService.daysToInject) 天要点"))
         XCTAssertTrue(snapshot.contains("### 昨日"))
         XCTAssertTrue(snapshot.contains("昨天聊了记忆架构"))
+    }
+
+    func testAppendInvalidatesCachedSnapshot() {
+        let service = MemoryService(rootURL: tempRoot)
+        let now = makeDate(hour: 11, minute: 0)
+        let initial = service.composeSnapshot(now: now)
+        XCTAssertFalse(initial.contains("缓存刷新测试"))
+
+        XCTAssertTrue(service.appendToToday(.notes, entry: "缓存刷新测试", now: now))
+
+        let updated = service.composeSnapshot(now: now)
+        XCTAssertTrue(updated.contains("缓存刷新测试"))
+    }
+
+    func testAppendReturnsFalseWhenRootPathIsAFile() throws {
+        let blocker = tempRoot.appendingPathComponent("blocker")
+        try Data("blocker".utf8).write(to: blocker)
+        let service = MemoryService(rootURL: blocker)
+
+        XCTAssertFalse(service.appendToToday(.notes, entry: "不能写入"))
     }
 
     // MARK: - Helpers

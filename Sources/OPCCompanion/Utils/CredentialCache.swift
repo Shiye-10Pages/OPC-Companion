@@ -62,11 +62,14 @@ public final class CredentialCache: @unchecked Sendable {
         return minimaxAPIKey
     }
 
-    public func setMinimaxAPIKey(_ value: String) {
-        lock.lock(); minimaxAPIKey = value; minimaxLoaded = true; lock.unlock()
-        if !Self.isTesting {
-            KeychainHelper.save(account: KeychainHelper.Account.minimaxAPIKey, value: value)
+    @discardableResult
+    public func setMinimaxAPIKey(_ value: String) -> Bool {
+        if !Self.isTesting, !KeychainHelper.save(account: KeychainHelper.Account.minimaxAPIKey, value: value) {
+            OPCLogger.shared.log(.error, "credential", "MiniMax API Key 写入 Keychain 失败")
+            return false
         }
+        lock.lock(); minimaxAPIKey = value; minimaxLoaded = true; lock.unlock()
+        return true
     }
 
     public func getNotionToken() -> String {
@@ -79,11 +82,14 @@ public final class CredentialCache: @unchecked Sendable {
         return notionToken
     }
 
-    public func setNotionToken(_ value: String) {
-        lock.lock(); notionToken = value; notionLoaded = true; lock.unlock()
-        if !Self.isTesting {
-            KeychainHelper.save(account: KeychainHelper.Account.notionToken, value: value)
+    @discardableResult
+    public func setNotionToken(_ value: String) -> Bool {
+        if !Self.isTesting, !KeychainHelper.save(account: KeychainHelper.Account.notionToken, value: value) {
+            OPCLogger.shared.log(.error, "credential", "Notion Token 写入 Keychain 失败")
+            return false
         }
+        lock.lock(); notionToken = value; notionLoaded = true; lock.unlock()
+        return true
     }
 
     public func resetForTesting() {

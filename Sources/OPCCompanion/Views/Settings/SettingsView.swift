@@ -43,6 +43,10 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 20) {
                 setupChecklist
 
+                AboutShiyeAIView()
+
+                Divider()
+
                 ThemeSection()
 
                 Divider()
@@ -133,13 +137,16 @@ struct SettingsView: View {
                         }
                         customBaseURL = state.config.apiConfig.baseURL
                         state.saveConfig()
-                        state.saveConfig()
                     }
 
                     SecureField("API Key（存储在 macOS Keychain）", text: $apiKey)
                         .textFieldStyle(.roundedBorder)
                         .onChange(of: apiKey) { _, newValue in
-                            CredentialCache.shared.setMinimaxAPIKey(newValue)
+                            if !CredentialCache.shared.setMinimaxAPIKey(newValue) {
+                                state.showBanner("MiniMax API Key 保存失败，请重试（详见日志）", kind: .error, duration: 5.0)
+                            } else if !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                UserDefaults.standard.set(true, forKey: AppBrand.onboardingCompletionKey)
+                            }
                         }
 
                     if selectedProvider == "custom" {
@@ -209,7 +216,7 @@ struct SettingsView: View {
 
                     HStack(spacing: 16) {
                         StatusIndicator(name: "Notion", isConnected: checkNotionConnection())
-                        StatusIndicator(name: "MiniMax", isConnected: checkClaudeConnection())
+                        StatusIndicator(name: "MiniMax", isConnected: checkMiniMaxConnection())
                     }
                 }
 
@@ -309,7 +316,9 @@ struct SettingsView: View {
             SecureField("Notion Token（存储在 macOS Keychain）", text: $notionToken)
                 .textFieldStyle(.roundedBorder)
                 .onChange(of: notionToken) { _, newValue in
-                    CredentialCache.shared.setNotionToken(newValue)
+                    if !CredentialCache.shared.setNotionToken(newValue) {
+                        state.showBanner("Notion Token 保存失败，请重试（详见日志）", kind: .error, duration: 5.0)
+                    }
                 }
 
             HStack {
@@ -399,7 +408,7 @@ struct SettingsView: View {
         !CredentialCache.shared.getNotionToken().isEmpty
     }
 
-    private func checkClaudeConnection() -> Bool {
+    private func checkMiniMaxConnection() -> Bool {
         !CredentialCache.shared.getMinimaxAPIKey().isEmpty
     }
 
@@ -454,8 +463,12 @@ struct ScheduledTaskRow: View {
                 get: { task.enabled },
                 set: { newValue in
                     if let index = state.scheduledTasks.firstIndex(where: { $0.id == task.id }) {
+                        let previousValue = state.scheduledTasks[index].enabled
                         state.scheduledTasks[index].enabled = newValue
-                        state.saveScheduledTasks()
+                        if !state.saveScheduledTasks() {
+                            state.scheduledTasks[index].enabled = previousValue
+                            state.showBanner("定时任务开关保存失败，已恢复原状态（详见日志）", kind: .error, duration: 5.0)
+                        }
                     }
                 }
             ))
@@ -473,9 +486,14 @@ struct ScheduledTaskRow: View {
     }
 
     private func deleteTask() {
+        let previousTasks = state.scheduledTasks
         state.scheduledTasks.removeAll { $0.id == task.id }
-        state.saveScheduledTasks()
-        state.showBanner("已删除：\(task.name)", kind: .info)
+        if state.saveScheduledTasks() {
+            state.showBanner("已删除：\(task.name)", kind: .info)
+        } else {
+            state.scheduledTasks = previousTasks
+            state.showBanner("删除定时任务失败，已恢复原状态（详见日志）", kind: .error, duration: 5.0)
+        }
     }
 
     private func scheduleDescription(_ schedule: TaskSchedule) -> String {
@@ -494,8 +512,8 @@ struct ScheduledTaskForm: View {
     @EnvironmentObject var state: AppState
 
     let task: ScheduledTask?
-    let onSave: (ScheduledTask) -> Void
-    let onDelete: (ScheduledTask) -> Void
+    let onSave: (ScheduledTask) -> Bool
+    let onDelete: (ScheduledTask) -> Bool
     let onCancel: () -> Void
 
     @State private var name = ""
@@ -545,8 +563,9 @@ struct ScheduledTaskForm: View {
             HStack {
                 if task != nil {
                     Button("删除") {
-                        onDelete(task!)
-                        onCancel()
+                        if onDelete(task!) {
+                            onCancel()
+                        }
                     }
                     .foregroundColor(.red)
                 }
@@ -567,8 +586,9 @@ struct ScheduledTaskForm: View {
                         prompt: prompt,
                         enabled: enabled
                     )
-                    onSave(newTask)
-                    onCancel()
+                    if onSave(newTask) {
+                        onCancel()
+                    }
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(name.isEmpty || prompt.isEmpty)

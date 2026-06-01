@@ -166,6 +166,8 @@ public final class AppState: ObservableObject {
             }
         case .undoBatchDelete:
             undoBatchDelete()
+        case .openShiyeAIResources:
+            AppBrand.openResources()
         }
         banner = nil
     }
@@ -183,9 +185,14 @@ public final class AppState: ObservableObject {
     private func migrateLegacyPlainTextAPIKey() {
         let plaintext = config.apiConfig.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !plaintext.isEmpty else { return }
-        CredentialCache.shared.setMinimaxAPIKey(plaintext)
+        guard CredentialCache.shared.setMinimaxAPIKey(plaintext) else {
+            logError("credential", "migrateLegacyPlainTextAPIKey 写入 Keychain 失败，保留 config.json 中的旧值")
+            return
+        }
         config.apiConfig.apiKey = ""
-        saveConfig()
+        if !saveConfig() {
+            logError("credential", "migrateLegacyPlainTextAPIKey 清理 config.json 中旧值失败")
+        }
     }
 
     private func startGlobalTimer() {
@@ -315,7 +322,6 @@ public final class AppState: ObservableObject {
         tasks[idx].status = .done
         let finishedTitle = tasks[idx].title
         activeTask = nil
-        saveTasks()
 
         if finished.isPomodoroBreak {
             // 休息结束 → 回到 idle，提示下一轮
@@ -323,7 +329,11 @@ public final class AppState: ObservableObject {
             pomodoroAnchorTaskId = nil
             menuBarStatus = .idle
             resetTimerFlags()
-            showBanner("休息结束 · 准备下一轮 🍅", kind: .info, duration: 5.0)
+            if saveTasks() {
+                showBanner("休息结束 · 准备下一轮 🍅", kind: .info, duration: 5.0)
+            } else {
+                showBanner("休息已结束，但状态保存失败，重启后可能丢失（详见日志）", kind: .warning, duration: 5.0)
+            }
             refreshNextCandidates()
         } else {
             // 工作段结束 → 启动 5 分钟休息段
@@ -342,8 +352,11 @@ public final class AppState: ObservableObject {
             menuBarStatus = .focus
             resetTimerFlags()
             lastProgressPingAt = Date()
-            saveTasks()
-            showBanner("完成 \(finishedTitle) · 休息 5 分钟", kind: .success, duration: 5.0)
+            if saveTasks() {
+                showBanner("完成 \(finishedTitle) · 休息 5 分钟", kind: .success, duration: 5.0)
+            } else {
+                showBanner("已进入休息，但状态保存失败，重启后可能丢失（详见日志）", kind: .warning, duration: 5.0)
+            }
             MemoryService.shared.appendToToday(.tasks, entry: "🍅 完成 \(finishedTitle)\(Self.estimateVsActualNote(for: tasks[idx]))")
         }
     }
@@ -540,27 +553,33 @@ public final class AppState: ObservableObject {
         pomodoroAnchorTaskId = nil
     }
 
-    public func saveSessionState() {
+    @discardableResult
+    public func saveSessionState() -> Bool {
         let url = Self.dataDirectory.appendingPathComponent("session-state.txt")
-        try? lastSessionDate.write(to: url, atomically: true, encoding: .utf8)
+        return Self.persist(Data(lastSessionDate.utf8), to: url, label: "saveSessionState")
     }
 
-    public func saveRitualState() {
+    @discardableResult
+    public func saveRitualState() -> Bool {
         let url = Self.dataDirectory.appendingPathComponent("ritual-state.txt")
-        try? lastMorningRitualDate.write(to: url, atomically: true, encoding: .utf8)
+        return Self.persist(Data(lastMorningRitualDate.utf8), to: url, label: "saveRitualState")
     }
 
-    public func saveDreamingState() {
+    @discardableResult
+    public func saveDreamingState() -> Bool {
         let url = Self.dataDirectory.appendingPathComponent("dreaming-state.txt")
-        try? lastDreamingReviewDate.write(to: url, atomically: true, encoding: .utf8)
+        return Self.persist(Data(lastDreamingReviewDate.utf8), to: url, label: "saveDreamingState")
     }
 
     public func markDreamingReviewDone(now: Date = Date()) {
         let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
         lastDreamingReviewDate = f.string(from: now)
-        saveDreamingState()
+        let saved = saveDreamingState()
         showDreamingReview = false
         pendingLearnings = []
+        if !saved {
+            showBanner("长期记忆审核状态保存失败，下次启动可能再次提示（详见日志）", kind: .warning, duration: 5.0)
+        }
     }
 
     /// 打开面板时检查：今日还未完成早晨仪式 → 触发
@@ -575,16 +594,23 @@ public final class AppState: ObservableObject {
     public func finishMorningRitual(items: [String], now: Date = Date()) {
         let cleaned = items.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+        var lockedCount = 0
         for title in cleaned {
-            _ = addPinnedTask(title: title)
-            MemoryService.shared.appendToToday(.tasks, entry: "锁定：\(title)")
+            if addPinnedTask(title: title) != nil {
+                lockedCount += 1
+                MemoryService.shared.appendToToday(.tasks, entry: "锁定：\(title)")
+            }
         }
         let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
         lastMorningRitualDate = f.string(from: now)
-        saveRitualState()
+        let ritualSaved = saveRitualState()
         showMorningRitual = false
-        if !cleaned.isEmpty {
-            showBanner("已锁定今日 \(cleaned.count) 件事", kind: .success)
+        if !ritualSaved {
+            showBanner("今日锁定已更新，但仪式状态保存失败，下次启动可能再次提示（详见日志）", kind: .warning, duration: 5.0)
+        } else if lockedCount < cleaned.count {
+            showBanner("已锁定 \(lockedCount)/\(cleaned.count) 件事，部分任务保存失败（详见日志）", kind: .warning, duration: 5.0)
+        } else if lockedCount > 0 {
+            showBanner("已锁定今日 \(lockedCount) 件事", kind: .success)
         }
     }
 
@@ -605,7 +631,9 @@ public final class AppState: ObservableObject {
         let content = (parsed.main.isEmpty ? messages[idx].content : parsed.main)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !content.isEmpty else { return }
-        captureNote(content: content, source: .convertFromMessage, inputMode: messages[idx].inputMode)
+        guard captureNote(content: content, source: .convertFromMessage, inputMode: messages[idx].inputMode) else {
+            return
+        }
         messages[idx].hidden = true
 
         if messages[idx].role == .user {
@@ -615,38 +643,67 @@ public final class AppState: ObservableObject {
             }
         }
 
-        rewriteTodayMessages()
-        showBanner("已转随手记", kind: .success)
+        if rewriteTodayMessages() {
+            showBanner("已转随手记", kind: .success)
+        } else {
+            showBanner("随手记已保存，但对话隐藏状态保存失败（详见日志）", kind: .warning, duration: 5.0)
+        }
         MemoryService.shared.appendToToday(.notes, entry: content)
     }
 
-    public func captureNote(content: String, source: Note.Source, inputMode: InputMode = .text, kind: Note.Kind = .note) {
+    @discardableResult
+    public func captureNote(content: String, source: Note.Source, inputMode: InputMode = .text, kind: Note.Kind = .note) -> Bool {
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty else { return false }
         let note = Note(content: trimmed, source: source, inputMode: inputMode, kind: kind)
+        guard InboxService.shared.append(note) else {
+            showBanner("随手记保存失败，内容未保存，请重试（详见日志）", kind: .error, duration: 5.0)
+            return false
+        }
         notes.append(note)
-        InboxService.shared.append(note)
         markActivity()
+        return true
     }
 
-    public func markNoteDone(_ note: Note) {
-        guard let idx = notes.firstIndex(where: { $0.id == note.id }) else { return }
+    @discardableResult
+    public func markNoteDone(_ note: Note) -> Bool {
+        guard let idx = notes.firstIndex(where: { $0.id == note.id }) else { return false }
+        let original = notes[idx]
         notes[idx].status = .done
         notes[idx].processedAt = Date()
-        InboxService.shared.saveAll(notes)
+        guard InboxService.shared.saveAll(notes) else {
+            notes[idx] = original
+            showBanner("随手记状态保存失败，未标记完成（详见日志）", kind: .error, duration: 5.0)
+            return false
+        }
+        return true
     }
 
-    public func deleteNote(_ note: Note) {
-        notes.removeAll { $0.id == note.id }
-        InboxService.shared.saveAll(notes)
+    @discardableResult
+    public func deleteNote(_ note: Note) -> Bool {
+        guard let idx = notes.firstIndex(where: { $0.id == note.id }) else { return false }
+        let original = notes
+        notes.remove(at: idx)
+        guard InboxService.shared.saveAll(notes) else {
+            notes = original
+            showBanner("随手记删除失败，内容已保留（详见日志）", kind: .error, duration: 5.0)
+            return false
+        }
+        return true
     }
 
     /// 批量删除随手记 + 记录 5 秒内可撤销的快照（Inbox 的"批量删除"入口用）
-    public func batchDeleteNotesWithUndo(ids: Set<UUID>) {
+    @discardableResult
+    public func batchDeleteNotesWithUndo(ids: Set<UUID>) -> Bool {
         let snapshot = notes.filter { ids.contains($0.id) }
-        guard !snapshot.isEmpty else { return }
+        guard !snapshot.isEmpty else { return false }
+        let original = notes
         notes.removeAll { ids.contains($0.id) }
-        InboxService.shared.saveAll(notes)
+        guard InboxService.shared.saveAll(notes) else {
+            notes = original
+            showBanner("批量删除失败，随手记已保留（详见日志）", kind: .error, duration: 5.0)
+            return false
+        }
 
         pendingUndoNotes = snapshot
         pendingUndoExpireTask?.cancel()
@@ -660,19 +717,25 @@ public final class AppState: ObservableObject {
                    kind: .info,
                    duration: 5.0,
                    action: .undoBatchDelete)
+        return true
     }
 
     /// 恢复上次批量删除的随手记（由 banner "撤销" 按钮触发）
     public func undoBatchDelete() {
         guard !pendingUndoNotes.isEmpty else { return }
         let restore = pendingUndoNotes
-        pendingUndoNotes = []
-        pendingUndoExpireTask?.cancel()
-        pendingUndoExpireTask = nil
+        let original = notes
         for note in restore where !notes.contains(where: { $0.id == note.id }) {
             notes.append(note)
         }
-        InboxService.shared.saveAll(notes)
+        guard InboxService.shared.saveAll(notes) else {
+            notes = original
+            showBanner("撤销恢复失败，请重试（详见日志）", kind: .error, duration: 5.0)
+            return
+        }
+        pendingUndoNotes = []
+        pendingUndoExpireTask?.cancel()
+        pendingUndoExpireTask = nil
         showBanner("已恢复 \(restore.count) 条", kind: .success, duration: 2.5)
     }
 
@@ -734,25 +797,23 @@ public final class AppState: ObservableObject {
 
         let cleanReason = reason.trimmingCharacters(in: .whitespacesAndNewlines)
         let entry = "我想清扫 → \(decision.memoryLabel)：\(note.content)\(cleanReason.isEmpty ? "" : "（\(cleanReason)）")"
-        MemoryService.shared.appendToToday(.notes, entry: entry)
 
-        wishClearingHandledNoteIds.insert(note.id)
         switch decision {
         case .now:
-            _ = addPinnedTask(title: note.content)
-            markNoteDone(note)
+            guard promoteNoteToPinnedTask(note) else { return }
             showBanner("已放到此刻", kind: .success)
         case .promote:
-            _ = addPinnedTask(title: note.content)
-            markNoteDone(note)
+            guard promoteNoteToPinnedTask(note) else { return }
             showBanner("已转任务", kind: .success)
         case .keep:
             showBanner("已先留着", kind: .info)
         case .delete:
-            deleteNote(note)
+            guard deleteNote(note) else { return }
             showBanner("已删除", kind: .info)
         }
 
+        MemoryService.shared.appendToToday(.notes, entry: entry)
+        wishClearingHandledNoteIds.insert(note.id)
         incrementWishClearingProcessed()
         wishClearingFocusNoteID = wishClearingCandidates.first?.id
     }
@@ -920,10 +981,16 @@ public final class AppState: ObservableObject {
             let json = (try? JSONSerialization.jsonObject(with: respData) as? [String: Any]) ?? [:]
             let pageId = json["id"] as? String
             if let idx = notes.firstIndex(where: { $0.id == note.id }) {
+                let original = notes[idx]
                 notes[idx].status = .done
                 notes[idx].processedAt = Date()
                 notes[idx].notionPageId = pageId
-                InboxService.shared.saveAll(notes)
+                if !InboxService.shared.saveAll(notes) {
+                    notes[idx] = original
+                    showBanner("Notion 已创建，但本地状态保存失败（详见日志）", kind: .warning, duration: 5.0)
+                    MemoryService.shared.appendToToday(.notion, entry: "推送随手记成功，但本地状态保存失败：\(note.content)")
+                    return true
+                }
             }
             showBanner("已推送到 Notion", kind: .success)
             MemoryService.shared.appendToToday(.notion, entry: "推送随手记：\(note.content)")
@@ -937,7 +1004,14 @@ public final class AppState: ObservableObject {
     // MARK: - Timer / Task 操作 API（供 ToolExecutor 调用）
 
     @discardableResult
-    public func startTimer(task title: String, minutes: Int, pomodoroCycle: Bool = false, focusMode: Bool = false) -> TaskItem {
+    public func startTimer(task title: String, minutes: Int, pomodoroCycle: Bool = false, focusMode: Bool = false) -> TaskItem? {
+        let previousActiveTask = activeTask
+        let previousMenuBarStatus = menuBarStatus
+        let previousTimerWarningFired = timerWarningFired
+        let previousTimerOvertimeFired = timerOvertimeFired
+        let previousLastProgressPingAt = lastProgressPingAt
+        let previousPomodoroPhase = pomodoroPhase
+        let previousPomodoroAnchorTaskId = pomodoroAnchorTaskId
         let task = TaskItem(
             title: title,
             status: .inProgress,
@@ -952,10 +1026,21 @@ public final class AppState: ObservableObject {
         menuBarStatus = .focus
         resetTimerFlags()
         lastProgressPingAt = Date()  // 启动时重置 ping 计时
-        saveTasks()
         if pomodoroCycle {
             pomodoroPhase = .work
             pomodoroAnchorTaskId = task.id
+        }
+        guard saveTasks() else {
+            tasks.removeAll { $0.id == task.id }
+            activeTask = previousActiveTask
+            menuBarStatus = previousMenuBarStatus
+            timerWarningFired = previousTimerWarningFired
+            timerOvertimeFired = previousTimerOvertimeFired
+            lastProgressPingAt = previousLastProgressPingAt
+            pomodoroPhase = previousPomodoroPhase
+            pomodoroAnchorTaskId = previousPomodoroAnchorTaskId
+            showBanner("计时启动失败，任务未保存（详见日志）", kind: .error, duration: 5.0)
+            return nil
         }
         if focusMode {
             Task { await FocusModeService.shared.enable() }
@@ -965,15 +1050,28 @@ public final class AppState: ObservableObject {
         return task
     }
 
-    public func completeCurrentTimer(note: String? = nil) {
+    @discardableResult
+    public func completeCurrentTimer(note: String? = nil) -> Bool {
         guard let active = activeTask,
-              let idx = tasks.firstIndex(where: { $0.id == active.id }) else { return }
+              let idx = tasks.firstIndex(where: { $0.id == active.id }) else { return false }
+        let previousTask = tasks[idx]
+        let previousMenuBarStatus = menuBarStatus
+        let previousTimerWarningFired = timerWarningFired
+        let previousTimerOvertimeFired = timerOvertimeFired
         tasks[idx].status = .done
         tasks[idx].actualMinutes = Self.actualMinutes(for: tasks[idx])
         activeTask = nil
         menuBarStatus = .idle
         resetTimerFlags()
-        saveTasks()
+        guard saveTasks() else {
+            tasks[idx] = previousTask
+            activeTask = active
+            menuBarStatus = previousMenuBarStatus
+            timerWarningFired = previousTimerWarningFired
+            timerOvertimeFired = previousTimerOvertimeFired
+            showBanner("完成任务失败，状态未保存（详见日志）", kind: .error, duration: 5.0)
+            return false
+        }
         let detail = note.map { " — \($0)" } ?? ""
         let estimateNote = Self.estimateVsActualNote(for: tasks[idx])
         showBanner("已完成：\(active.title)", kind: .success)
@@ -983,6 +1081,7 @@ public final class AppState: ObservableObject {
         if tasks[idx].focusMode {
             Task { await FocusModeService.shared.disable() }
         }
+        return true
     }
 
     /// 从 timerStart 到现在的分钟数（向上取整）；没有 start 则 nil
@@ -1000,41 +1099,88 @@ public final class AppState: ObservableObject {
         return " · 实 \(actual)m"
     }
 
-    public func extendCurrentTimer(by minutes: Int) {
+    @discardableResult
+    public func extendCurrentTimer(by minutes: Int) -> Bool {
         guard let active = activeTask,
-              let idx = tasks.firstIndex(where: { $0.id == active.id }) else { return }
+              let idx = tasks.firstIndex(where: { $0.id == active.id }) else { return false }
+        let previousTask = tasks[idx]
+        let previousMenuBarStatus = menuBarStatus
+        let previousTimerWarningFired = timerWarningFired
+        let previousTimerOvertimeFired = timerOvertimeFired
         let base = tasks[idx].timerEnd ?? Date()
         tasks[idx].timerEnd = base.addingTimeInterval(TimeInterval(minutes * 60))
         tasks[idx].extensions += 1
         activeTask = tasks[idx]
         menuBarStatus = .focus
         resetTimerFlags()
-        saveTasks()
+        guard saveTasks() else {
+            tasks[idx] = previousTask
+            activeTask = active
+            menuBarStatus = previousMenuBarStatus
+            timerWarningFired = previousTimerWarningFired
+            timerOvertimeFired = previousTimerOvertimeFired
+            showBanner("调整计时失败，状态未保存（详见日志）", kind: .error, duration: 5.0)
+            return false
+        }
         let verb = minutes >= 0 ? "延长" : "缩短"
         showBanner("已\(verb) \(abs(minutes)) 分钟", kind: .info)
         MemoryService.shared.appendToToday(.tasks, entry: "延长 \(minutes) 分钟：\(active.title)")
+        return true
     }
 
     @discardableResult
-    public func addPinnedTask(title: String) -> TaskItem {
+    public func addPinnedTask(title: String) -> TaskItem? {
         let task = TaskItem(title: title, status: .pending)
         tasks.append(task)
-        saveTasks()
+        guard saveTasks() else {
+            tasks.removeAll { $0.id == task.id }
+            showBanner("任务保存失败，未添加「\(title)」（详见日志）", kind: .error, duration: 5.0)
+            return nil
+        }
         return task
     }
 
+    @discardableResult
+    public func promoteNoteToPinnedTask(_ note: Note, title: String? = nil) -> Bool {
+        guard let task = addPinnedTask(title: title ?? note.content) else { return false }
+        guard markNoteDone(note) else {
+            tasks.removeAll { $0.id == task.id }
+            if saveTasks() {
+                showBanner("转任务失败，新任务已回滚，随手记已保留（详见日志）", kind: .error, duration: 5.0)
+            } else {
+                showBanner("转任务失败，且新任务回滚保存失败，请检查任务列表（详见日志）", kind: .error, duration: 5.0)
+            }
+            return false
+        }
+        return true
+    }
+
     /// 取消当前活跃计时（AI tool cancel_timer 调用）。任务状态置 .cancelled，activeTask 释放。
-    public func cancelCurrentTimer(reason: String? = nil) {
+    @discardableResult
+    public func cancelCurrentTimer(reason: String? = nil) -> Bool {
         guard let active = activeTask,
-              let idx = tasks.firstIndex(where: { $0.id == active.id }) else { return }
+              let idx = tasks.firstIndex(where: { $0.id == active.id }) else { return false }
+        let previousTask = tasks[idx]
+        let previousMenuBarStatus = menuBarStatus
+        let previousTimerWarningFired = timerWarningFired
+        let previousTimerOvertimeFired = timerOvertimeFired
         tasks[idx].status = .cancelled
         activeTask = nil
         menuBarStatus = .idle
         resetTimerFlags()
-        saveTasks()
+        guard saveTasks() else {
+            tasks[idx] = previousTask
+            activeTask = active
+            menuBarStatus = previousMenuBarStatus
+            timerWarningFired = previousTimerWarningFired
+            timerOvertimeFired = previousTimerOvertimeFired
+            showBanner("取消计时失败，状态未保存（详见日志）", kind: .error, duration: 5.0)
+            return false
+        }
         let detail = reason.map { "（\($0)）" } ?? ""
         showBanner("已取消：\(active.title)\(detail)", kind: .info)
         MemoryService.shared.appendToToday(.tasks, entry: "取消计时：\(active.title)\(detail)")
+        return true
     }
 
     /// 按标题匹配把一条 pinned 标记为 done（AI tool mark_task_done）。title 支持前缀/包含匹配。
@@ -1046,8 +1192,13 @@ public final class AppState: ObservableObject {
         guard let idx = tasks.firstIndex(where: { task in
             task.status == .pending && (task.title == query || task.title.contains(query))
         }) else { return nil }
+        let previousTask = tasks[idx]
         tasks[idx].status = .done
-        saveTasks()
+        guard saveTasks() else {
+            tasks[idx] = previousTask
+            showBanner("完成任务失败，状态未保存（详见日志）", kind: .error, duration: 5.0)
+            return nil
+        }
         showBanner("已完成：\(tasks[idx].title)", kind: .success)
         MemoryService.shared.appendToToday(.tasks, entry: "完成：\(tasks[idx].title)")
         return tasks[idx]
@@ -1061,13 +1212,25 @@ public final class AppState: ObservableObject {
         guard let idx = tasks.firstIndex(where: { task in
             task.status != .done && (task.title == query || task.title.contains(query))
         }) else { return nil }
+        let previousActiveTask = activeTask
+        let previousMenuBarStatus = menuBarStatus
+        let previousTimerWarningFired = timerWarningFired
+        let previousTimerOvertimeFired = timerOvertimeFired
         let removed = tasks.remove(at: idx)
         if activeTask?.id == removed.id {
             activeTask = nil
             menuBarStatus = .idle
             resetTimerFlags()
         }
-        saveTasks()
+        guard saveTasks() else {
+            tasks.insert(removed, at: idx)
+            activeTask = previousActiveTask
+            menuBarStatus = previousMenuBarStatus
+            timerWarningFired = previousTimerWarningFired
+            timerOvertimeFired = previousTimerOvertimeFired
+            showBanner("删除任务失败，状态未保存（详见日志）", kind: .error, duration: 5.0)
+            return nil
+        }
         showBanner("已删除：\(removed.title)", kind: .info)
         MemoryService.shared.appendToToday(.tasks, entry: "删除任务：\(removed.title)")
         return removed
@@ -1087,15 +1250,8 @@ public final class AppState: ObservableObject {
         if let m = minutes, m > 0 {
             return startTimer(task: trimmed, minutes: m, pomodoroCycle: pomodoroCycle, focusMode: focusMode)
         } else {
-            // 内联建任务 + 落盘，以便拿到持久化结果，给出诚实提示（不伪成功）
-            let task = TaskItem(title: trimmed, status: .pending)
-            tasks.append(task)
-            let ok = saveTasks()
-            if ok {
-                showBanner("已添加任务：\(trimmed)", kind: .success)
-            } else {
-                showBanner("已添加「\(trimmed)」，但保存失败，重启后可能丢失（详见日志）", kind: .warning)
-            }
+            guard let task = addPinnedTask(title: trimmed) else { return nil }
+            showBanner("已添加任务：\(trimmed)", kind: .success)
             MemoryService.shared.appendToToday(.tasks, entry: "新增待办：\(trimmed)")
             return task
         }
@@ -1106,16 +1262,10 @@ public final class AppState: ObservableObject {
     }
 
     public func convertNoteToTask(_ note: Note) {
-        let task = TaskItem(title: note.content, status: .pending)
-        tasks.append(task)
-        let ok = saveTasks()
-        markNoteDone(note)
-        if ok {
+        if promoteNoteToPinnedTask(note) {
             showBanner("已转任务：\(note.content)", kind: .success)
-        } else {
-            showBanner("已转任务「\(note.content)」，但保存失败，重启后可能丢失（详见日志）", kind: .warning)
+            MemoryService.shared.appendToToday(.tasks, entry: "从随手记转任务：\(note.content)")
         }
-        MemoryService.shared.appendToToday(.tasks, entry: "从随手记转任务：\(note.content)")
     }
 
     private func loadFile(named filename: String) -> Data? {
@@ -1128,16 +1278,25 @@ public final class AppState: ObservableObject {
         let url = Self.dataDirectory.appendingPathComponent("config.json")
         guard let data = try? JSONEncoder().encode(config) else {
             logError("persist", "saveConfig 编码失败")
+            showBanner("设置保存失败，请重试（详见日志）", kind: .error, duration: 5.0)
             return false
         }
-        return Self.persist(data, to: url, label: "saveConfig")
+        guard Self.persist(data, to: url, label: "saveConfig") else {
+            showBanner("设置保存失败，请重试（详见日志）", kind: .error, duration: 5.0)
+            return false
+        }
+        return true
     }
 
     @discardableResult
     public func saveSystemPrompt() -> Bool {
         let url = Self.dataDirectory.appendingPathComponent("system-prompt.txt")
-        guard let data = systemPrompt.data(using: .utf8) else { return false }
-        return Self.persist(data, to: url, label: "saveSystemPrompt")
+        guard let data = systemPrompt.data(using: .utf8),
+              Self.persist(data, to: url, label: "saveSystemPrompt") else {
+            showBanner("系统提示词保存失败，请重试（详见日志）", kind: .error, duration: 5.0)
+            return false
+        }
+        return true
     }
 
     @discardableResult
@@ -1172,35 +1331,58 @@ public final class AppState: ObservableObject {
         saveFontScale()
     }
 
-    private func saveFontScale() {
+    @discardableResult
+    private func saveFontScale() -> Bool {
         let url = Self.dataDirectory.appendingPathComponent("font-scale.txt")
-        guard let data = String(fontScale).data(using: .utf8) else { return }
-        Self.persist(data, to: url, label: "saveFontScale")
+        guard let data = String(fontScale).data(using: .utf8),
+              Self.persist(data, to: url, label: "saveFontScale") else {
+            showBanner("字号设置保存失败，重启后可能恢复默认值（详见日志）", kind: .warning, duration: 5.0)
+            return false
+        }
+        return true
     }
 
     /// 持久化"今日已触发定时任务"集合，避免 kill/重启后同一天重复触发闹钟
-    public func saveTriggerState() {
+    @discardableResult
+    public func saveTriggerState() -> Bool {
         let url = Self.dataDirectory.appendingPathComponent(Self.triggerStatePath)
-        Self.ensureParentDirectory(url)
         let snapshot = TriggerStateSnapshot(
             triggeredTasksToday: Array(triggeredTasksToday),
             lastTriggerDate: lastTriggerDate
         )
         guard let data = try? JSONEncoder().encode(snapshot) else {
             logError("persist", "saveTriggerState 编码失败")
-            return
+            showBanner("提醒状态保存失败，重启后可能重复提醒（详见日志）", kind: .warning, duration: 5.0)
+            return false
         }
-        Self.persist(data, to: url, label: "saveTriggerState")
+        guard Self.persist(data, to: url, label: "saveTriggerState") else {
+            showBanner("提醒状态保存失败，重启后可能重复提醒（详见日志）", kind: .warning, duration: 5.0)
+            return false
+        }
+        return true
     }
 
     private static let pinnedTasksPath = "tasks/pinned.json"
     private static let scheduledTasksPath = "timers/scheduled.json"
     private static let triggerStatePath = "timers/trigger-state.json"
 
-    private static func ensureParentDirectory(_ url: URL) {
+    @discardableResult
+    private static func ensureParentDirectory(_ url: URL) -> Bool {
         let parent = url.deletingLastPathComponent()
-        if !FileManager.default.fileExists(atPath: parent.path) {
-            try? FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        var isDirectory: ObjCBool = false
+        if FileManager.default.fileExists(atPath: parent.path, isDirectory: &isDirectory) {
+            guard isDirectory.boolValue else {
+                logError("persist", "父路径不是目录 \(parent.path)")
+                return false
+            }
+            return true
+        }
+        do {
+            try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+            return true
+        } catch {
+            logError("persist", "创建父目录失败 \(parent.path): \(error.localizedDescription)")
+            return false
         }
     }
 
@@ -1219,7 +1401,7 @@ public final class AppState: ObservableObject {
     /// 统一原子写入：确保父目录存在、失败记日志（不再静默吞 try?），返回是否成功。
     @discardableResult
     private static func persist(_ data: Data, to url: URL, label: String) -> Bool {
-        ensureParentDirectory(url)
+        guard ensureParentDirectory(url) else { return false }
         do {
             try data.write(to: url, options: .atomic)
             return true
@@ -1297,11 +1479,14 @@ public final class AppState: ObservableObject {
     public func persistMessage(id: UUID) {
         guard let msg = messages.first(where: { $0.id == id }) else { return }
         guard msg.role != .system, !msg.content.isEmpty else { return }
-        appendMessageLine(msg)
+        if !appendMessageLine(msg) {
+            showBanner("对话记录保存失败，重启后可能丢失（详见日志）", kind: .warning, duration: 5.0)
+        }
     }
 
-    private func rewriteTodayMessages() {
-        guard !Self.isRunningTests else { return }
+    @discardableResult
+    private func rewriteTodayMessages() -> Bool {
+        guard !Self.isRunningTests else { return true }
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy-MM-dd"
         let dateString = dateFormatter.string(from: Date())
@@ -1311,24 +1496,34 @@ public final class AppState: ObservableObject {
         let rows = messages.filter { msg in
             msg.role != .system && !(msg.role == .assistant && msg.content.isEmpty)
         }
-        let lines = rows.compactMap { msg -> String? in
-            guard let data = try? JSONEncoder().encode(msg) else { return nil }
-            return String(data: data, encoding: .utf8)
-        }.joined(separator: "\n")
+        let lines: String
+        do {
+            lines = try rows.map { msg in
+                let data = try JSONEncoder().encode(msg)
+                guard let line = String(data: data, encoding: .utf8) else {
+                    throw CocoaError(.fileWriteInapplicableStringEncoding)
+                }
+                return line
+            }.joined(separator: "\n")
+        } catch {
+            logError("persist", "rewriteTodayMessages 编码失败: \(error.localizedDescription)")
+            return false
+        }
         let body = lines.isEmpty ? "" : lines + "\n"
-        let fileManager = FileManager.default
-        try? fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? body.write(to: url, atomically: true, encoding: .utf8)
+        return Self.persist(Data(body.utf8), to: url, label: "rewriteTodayMessages")
     }
 
     private func saveTodayMessages() {
         guard !Self.isRunningTests else { return }
         guard let last = messages.last, last.role != .system else { return }
-        appendMessageLine(last)
+        if !appendMessageLine(last) {
+            showBanner("对话记录保存失败，重启后可能丢失（详见日志）", kind: .warning, duration: 5.0)
+        }
     }
 
-    private func appendMessageLine(_ message: Message) {
-        guard !Self.isRunningTests else { return }
+    @discardableResult
+    private func appendMessageLine(_ message: Message) -> Bool {
+        guard !Self.isRunningTests else { return true }
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy-MM-dd"
         let dateString = dateFormatter.string(from: Date())
@@ -1338,16 +1533,14 @@ public final class AppState: ObservableObject {
             .appendingPathComponent("\(dateString).jsonl")
 
         let fileManager = FileManager.default
-        if !fileManager.fileExists(atPath: url.path) {
-            try? fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        }
+        guard Self.ensureParentDirectory(url) else { return false }
 
         guard let data = try? JSONEncoder().encode(message),
               let line = String(data: data, encoding: .utf8),
               let newline = "\n".data(using: .utf8),
               let lineData = line.data(using: .utf8) else {
             logError("persist", "appendMessageLine 编码失败 id=\(message.id)")
-            return
+            return false
         }
         do {
             if fileManager.fileExists(atPath: url.path) {
@@ -1359,8 +1552,10 @@ public final class AppState: ObservableObject {
             } else {
                 try line.write(to: url, atomically: true, encoding: .utf8)
             }
+            return true
         } catch {
             logError("persist", "appendMessageLine 写入失败 \(url.lastPathComponent): \(error.localizedDescription)")
+            return false
         }
     }
 
@@ -1465,23 +1660,20 @@ public final class AppState: ObservableObject {
             )
             lastSummary = summary
             lastSummaryDate = today
-            saveDailySummary(summary, date: today)
+            if !saveDailySummary(summary, date: today) {
+                showBanner("今日总结已生成，但保存失败（详见日志）", kind: .warning, duration: 5.0)
+            }
             return summary
         } catch {
             return "无法生成总结：\(error.localizedDescription)"
         }
     }
 
-    private func saveDailySummary(_ summary: String, date: String) {
+    @discardableResult
+    private func saveDailySummary(_ summary: String, date: String) -> Bool {
         let url = Self.dataDirectory.appendingPathComponent("daily-summaries")
             .appendingPathComponent("\(date).txt")
-        let fileManager = FileManager.default
-
-        if !fileManager.fileExists(atPath: url.deletingLastPathComponent().path) {
-            try? fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        }
-
-        try? summary.write(to: url, atomically: true, encoding: .utf8)
+        return Self.persist(Data(summary.utf8), to: url, label: "saveDailySummary")
     }
 }
 

@@ -2,7 +2,7 @@ import SwiftUI
 
 struct QuickCaptureView: View {
     let autoStartVoice: Bool
-    let onSubmit: (String, InputMode, Note.Kind) -> Void
+    let onSubmit: (String, InputMode, Note.Kind) -> Bool
     let onCancel: () -> Void
 
     @State private var text = ""
@@ -129,7 +129,8 @@ struct QuickCaptureView: View {
         let mode: InputMode = voiceMode ? .voice : .text
         let kind: Note.Kind = isWish ? .wish : .note
         stopVoiceIfNeeded()
-        onSubmit(trimmed, mode, kind)
-        text = ""
+        if onSubmit(trimmed, mode, kind) {
+            text = ""
+        }
     }
 }

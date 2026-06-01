@@ -38,8 +38,8 @@ final class InboxServiceTests: XCTestCase {
 
     func testAppendAndLoadRoundTrip() {
         let service = InboxService(fileURL: tempURL)
-        service.append(Note(content: "第一条", source: .hotkeyText))
-        service.append(Note(content: "第二条", source: .slashInPanel))
+        XCTAssertTrue(service.append(Note(content: "第一条", source: .hotkeyText)))
+        XCTAssertTrue(service.append(Note(content: "第二条", source: .slashInPanel)))
 
         let loaded = service.loadAll()
         XCTAssertEqual(loaded.count, 2)
@@ -66,13 +66,33 @@ final class InboxServiceTests: XCTestCase {
 
     func testSaveAllOverwrites() {
         let service = InboxService(fileURL: tempURL)
-        service.saveAll([
+        XCTAssertTrue(service.saveAll([
             Note(content: "a", source: .hotkeyText),
             Note(content: "b", source: .hotkeyText)
-        ])
-        service.saveAll([Note(content: "c", source: .hotkeyText)])
+        ]))
+        XCTAssertTrue(service.saveAll([Note(content: "c", source: .hotkeyText)]))
         let loaded = service.loadAll()
         XCTAssertEqual(loaded.count, 1)
         XCTAssertEqual(loaded.first?.content, "c")
+    }
+
+    func testAppendReturnsFalseWhenParentPathIsAFile() throws {
+        let blocker = FileManager.default.temporaryDirectory
+            .appendingPathComponent("opc-inbox-blocker-\(UUID().uuidString)")
+        try Data("blocker".utf8).write(to: blocker)
+        defer { try? FileManager.default.removeItem(at: blocker) }
+
+        let service = InboxService(fileURL: blocker.appendingPathComponent("notes.jsonl"))
+        XCTAssertFalse(service.append(Note(content: "不能写入", source: .hotkeyText)))
+    }
+
+    func testSaveAllReturnsFalseWhenParentPathIsAFile() throws {
+        let blocker = FileManager.default.temporaryDirectory
+            .appendingPathComponent("opc-inbox-blocker-\(UUID().uuidString)")
+        try Data("blocker".utf8).write(to: blocker)
+        defer { try? FileManager.default.removeItem(at: blocker) }
+
+        let service = InboxService(fileURL: blocker.appendingPathComponent("notes.jsonl"))
+        XCTAssertFalse(service.saveAll([Note(content: "不能写入", source: .hotkeyText)]))
     }
 }
