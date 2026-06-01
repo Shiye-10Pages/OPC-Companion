@@ -171,6 +171,7 @@ public final class AppState: ObservableObject {
     }
 
     public init() {
+        Self.ensureDataDirectory()
         loadData()
         // 启动时加载凭证（secrets.json，必要时从旧 Keychain 迁移）
         CredentialCache.shared.loadIfNeeded()
@@ -1086,8 +1087,15 @@ public final class AppState: ObservableObject {
         if let m = minutes, m > 0 {
             return startTimer(task: trimmed, minutes: m, pomodoroCycle: pomodoroCycle, focusMode: focusMode)
         } else {
-            let task = addPinnedTask(title: trimmed)
-            showBanner("已添加任务：\(trimmed)", kind: .success)
+            // 内联建任务 + 落盘，以便拿到持久化结果，给出诚实提示（不伪成功）
+            let task = TaskItem(title: trimmed, status: .pending)
+            tasks.append(task)
+            let ok = saveTasks()
+            if ok {
+                showBanner("已添加任务：\(trimmed)", kind: .success)
+            } else {
+                showBanner("已添加「\(trimmed)」，但保存失败，重启后可能丢失（详见日志）", kind: .warning)
+            }
             MemoryService.shared.appendToToday(.tasks, entry: "新增待办：\(trimmed)")
             return task
         }
@@ -1100,9 +1108,13 @@ public final class AppState: ObservableObject {
     public func convertNoteToTask(_ note: Note) {
         let task = TaskItem(title: note.content, status: .pending)
         tasks.append(task)
-        saveTasks()
+        let ok = saveTasks()
         markNoteDone(note)
-        showBanner("已转任务：\(note.content)", kind: .success)
+        if ok {
+            showBanner("已转任务：\(note.content)", kind: .success)
+        } else {
+            showBanner("已转任务「\(note.content)」，但保存失败，重启后可能丢失（详见日志）", kind: .warning)
+        }
         MemoryService.shared.appendToToday(.tasks, entry: "从随手记转任务：\(note.content)")
     }
 
@@ -1111,26 +1123,41 @@ public final class AppState: ObservableObject {
         return try? Data(contentsOf: url)
     }
 
-    public func saveConfig() {
+    @discardableResult
+    public func saveConfig() -> Bool {
         let url = Self.dataDirectory.appendingPathComponent("config.json")
-        try? JSONEncoder().encode(config).write(to: url)
+        guard let data = try? JSONEncoder().encode(config) else {
+            logError("persist", "saveConfig 编码失败")
+            return false
+        }
+        return Self.persist(data, to: url, label: "saveConfig")
     }
 
-    public func saveSystemPrompt() {
+    @discardableResult
+    public func saveSystemPrompt() -> Bool {
         let url = Self.dataDirectory.appendingPathComponent("system-prompt.txt")
-        try? systemPrompt.write(to: url, atomically: true, encoding: .utf8)
+        guard let data = systemPrompt.data(using: .utf8) else { return false }
+        return Self.persist(data, to: url, label: "saveSystemPrompt")
     }
 
-    public func saveTasks() {
+    @discardableResult
+    public func saveTasks() -> Bool {
         let url = Self.dataDirectory.appendingPathComponent(Self.pinnedTasksPath)
-        Self.ensureParentDirectory(url)
-        try? JSONEncoder().encode(tasks).write(to: url, options: .atomic)
+        guard let data = try? JSONEncoder().encode(tasks) else {
+            logError("persist", "saveTasks 编码失败")
+            return false
+        }
+        return Self.persist(data, to: url, label: "saveTasks")
     }
 
-    public func saveScheduledTasks() {
+    @discardableResult
+    public func saveScheduledTasks() -> Bool {
         let url = Self.dataDirectory.appendingPathComponent(Self.scheduledTasksPath)
-        Self.ensureParentDirectory(url)
-        try? JSONEncoder().encode(scheduledTasks).write(to: url, options: .atomic)
+        guard let data = try? JSONEncoder().encode(scheduledTasks) else {
+            logError("persist", "saveScheduledTasks 编码失败")
+            return false
+        }
+        return Self.persist(data, to: url, label: "saveScheduledTasks")
     }
 
     /// 手动微调 UI 字号（Cmd+= / Cmd+- 调用）。delta 正数放大、负数缩小。
@@ -1147,7 +1174,8 @@ public final class AppState: ObservableObject {
 
     private func saveFontScale() {
         let url = Self.dataDirectory.appendingPathComponent("font-scale.txt")
-        try? String(fontScale).write(to: url, atomically: true, encoding: .utf8)
+        guard let data = String(fontScale).data(using: .utf8) else { return }
+        Self.persist(data, to: url, label: "saveFontScale")
     }
 
     /// 持久化"今日已触发定时任务"集合，避免 kill/重启后同一天重复触发闹钟
@@ -1158,7 +1186,11 @@ public final class AppState: ObservableObject {
             triggeredTasksToday: Array(triggeredTasksToday),
             lastTriggerDate: lastTriggerDate
         )
-        try? JSONEncoder().encode(snapshot).write(to: url, options: .atomic)
+        guard let data = try? JSONEncoder().encode(snapshot) else {
+            logError("persist", "saveTriggerState 编码失败")
+            return
+        }
+        Self.persist(data, to: url, label: "saveTriggerState")
     }
 
     private static let pinnedTasksPath = "tasks/pinned.json"
@@ -1169,6 +1201,31 @@ public final class AppState: ObservableObject {
         let parent = url.deletingLastPathComponent()
         if !FileManager.default.fileExists(atPath: parent.path) {
             try? FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        }
+    }
+
+    /// 启动时确保数据根目录存在，避免首启写 config / system-prompt 时因目录缺失而静默失败丢数据。
+    static func ensureDataDirectory() {
+        guard !isRunningTests else { return }
+        let dir = dataDirectory
+        guard !FileManager.default.fileExists(atPath: dir.path) else { return }
+        do {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        } catch {
+            logError("persist", "创建数据目录失败 \(dir.path): \(error.localizedDescription)")
+        }
+    }
+
+    /// 统一原子写入：确保父目录存在、失败记日志（不再静默吞 try?），返回是否成功。
+    @discardableResult
+    private static func persist(_ data: Data, to url: URL, label: String) -> Bool {
+        ensureParentDirectory(url)
+        do {
+            try data.write(to: url, options: .atomic)
+            return true
+        } catch {
+            logError("persist", "\(label) 写入失败 \(url.lastPathComponent): \(error.localizedDescription)")
+            return false
         }
     }
 
@@ -1285,20 +1342,25 @@ public final class AppState: ObservableObject {
             try? fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         }
 
-        if let data = try? JSONEncoder().encode(message),
-           let line = String(data: data, encoding: .utf8),
-           let newline = "\n".data(using: .utf8),
-           let lineData = line.data(using: .utf8) {
+        guard let data = try? JSONEncoder().encode(message),
+              let line = String(data: data, encoding: .utf8),
+              let newline = "\n".data(using: .utf8),
+              let lineData = line.data(using: .utf8) else {
+            logError("persist", "appendMessageLine 编码失败 id=\(message.id)")
+            return
+        }
+        do {
             if fileManager.fileExists(atPath: url.path) {
-                if let handle = try? FileHandle(forWritingTo: url) {
-                    handle.seekToEndOfFile()
-                    handle.write(newline)
-                    handle.write(lineData)
-                    try? handle.close()
-                }
+                let handle = try FileHandle(forWritingTo: url)
+                defer { try? handle.close() }
+                handle.seekToEndOfFile()
+                handle.write(newline)
+                handle.write(lineData)
             } else {
-                try? line.write(to: url, atomically: true, encoding: .utf8)
+                try line.write(to: url, atomically: true, encoding: .utf8)
             }
+        } catch {
+            logError("persist", "appendMessageLine 写入失败 \(url.lastPathComponent): \(error.localizedDescription)")
         }
     }
 

@@ -9,7 +9,8 @@ public enum LogLevel: String, Sendable {
 }
 
 /// 全局日志：同时写到 `~/.opc-companion/logs/YYYY-MM-DD.log` 和 stderr。
-/// NSLock 序列化写入。signal handler 用 async-signal-safe write(2) 直接写 fd。
+/// NSLock 序列化写入。signal handler 全程只用 async-signal-safe 调用（open/write/close/_exit
+/// + 栈缓冲），路径与前缀在安装时预计算，绝不在信号上下文里碰 Foundation 或分配堆内存。
 public final class OPCLogger: @unchecked Sendable {
     public static let shared = OPCLogger()
 
@@ -18,6 +19,12 @@ public final class OPCLogger: @unchecked Sendable {
     private let tsFormatter: DateFormatter
     private var cachedFD: Int32 = -1
     private var cachedDay: String = ""
+
+    // 崩溃 handler 专用：不可变全局常量（Sendable 安全），handler 内只读不分配、不触发初始化。
+    // 路径在首次访问（安装时）定格为当天日志文件：跨午夜后的崩溃会写进安装当天的文件，可接受
+    //（崩溃低频，signal-safe 优先于日期精确）。
+    private static let crashLogPathC: ContiguousArray<CChar> = ContiguousArray(OPCLogger.currentLogPath().utf8CString)
+    private static let crashPrefixBytes: [UInt8] = Array("\n[CRASH] signal=".utf8)
 
     private init() {
         fileFormatter = DateFormatter()
@@ -78,27 +85,54 @@ public final class OPCLogger: @unchecked Sendable {
             OPCLogger.shared.log(.error, "crash", msg)
         }
 
+        // 在安装时（非信号上下文）强制完成惰性初始化，确保 signal handler 内只命中已初始化的只读值。
+        _ = OPCLogger.crashLogPathC
+        _ = OPCLogger.crashPrefixBytes
+
         let sigs: [Int32] = [SIGTRAP, SIGABRT, SIGSEGV, SIGBUS, SIGILL, SIGFPE]
         for sig in sigs {
             signal(sig) { received in
-                // signal handler 里不能用大部分 Foundation API；直接 write 到 stderr + 日志文件
-                let path = OPCLogger.currentLogPath()
-                let msg = "\n[CRASH] signal=\(received) \(Date())\n"
-                path.withCString { cpath in
-                    let fd = open(cpath, O_WRONLY | O_CREAT | O_APPEND, 0o600)
-                    if fd >= 0 {
-                        msg.withCString { cmsg in
-                            _ = write(fd, cmsg, strlen(cmsg))
+                // 闭包不捕获任何局部变量（@convention(c) 要求）；只调 async-signal-safe 函数。
+                // 不碰任何 Foundation（DateFormatter/Date/String 插值会分配或加锁，可能二次死锁丢日志）。
+                OPCLogger.crashLogPathC.withUnsafeBufferPointer { p in
+                    if let base = p.baseAddress {
+                        let fd = open(base, O_WRONLY | O_CREAT | O_APPEND, 0o600)
+                        if fd >= 0 {
+                            OPCLogger.emitCrashLine(fd, received)
+                            close(fd)
                         }
-                        close(fd)
                     }
                 }
-                msg.withCString { cmsg in
-                    _ = write(STDERR_FILENO, cmsg, strlen(cmsg))
-                }
+                OPCLogger.emitCrashLine(STDERR_FILENO, received)
                 _exit(128 &+ received)
             }
         }
+    }
+
+    /// 把 `\n[CRASH] signal=NN\n` 写到 fd —— 只用 async-signal-safe 调用 + 栈缓冲，不分配堆内存。
+    private static func emitCrashLine(_ fd: Int32, _ sig: Int32) {
+        crashPrefixBytes.withUnsafeBufferPointer { p in
+            if let base = p.baseAddress { _ = write(fd, base, p.count) }
+        }
+        // 手动把 signal 号转十进制 ASCII，写进栈上临时缓冲（不分配堆内存）
+        withUnsafeTemporaryAllocation(of: UInt8.self, capacity: 16) { buf in
+            var n = Int(sig)
+            if n < 0 { n = 0 }
+            var i = 16
+            if n == 0 {
+                i -= 1
+                buf[i] = 0x30
+            } else {
+                while n > 0 {
+                    i -= 1
+                    buf[i] = UInt8(0x30 + (n % 10))
+                    n /= 10
+                }
+            }
+            if let base = buf.baseAddress { _ = write(fd, base + i, 16 - i) }
+        }
+        var nl: UInt8 = 0x0A
+        _ = write(fd, &nl, 1)
     }
 
     // MARK: - Private
