@@ -1,16 +1,29 @@
 # OPC 伴侣 - API 接入指南
 
-本文档给出 MiniMax 和 Notion 两个外部 API 的具体接入范例，供实现时参考。
+本文档给出 AI 服务商兼容层和 Notion API 的具体接入范例，供实现时参考。
 
 ---
 
-## 一、MiniMax Chat Completion API
+## 一、OpenAI-compatible Chat Completion API
 
 ### 1.1 基本信息
 
-- **Endpoint：** `POST https://api.minimax.io/v1/text/chatcompletion_v2`
+- **MiniMax 示例 Endpoint：** `POST https://api.minimax.io/v1/text/chatcompletion_v2`
 - **Auth：** `Authorization: Bearer <API_KEY>`
-- **模型：** `M2-her`
+- **MiniMax 默认模型：** `MiniMax-M2.7`
+
+内置服务商：
+
+| 服务商 | Base URL | 默认模型 |
+|--------|----------|----------|
+| MiniMax | `https://api.minimax.io/v1` | `MiniMax-M2.7` |
+| DeepSeek | `https://api.deepseek.com` | `deepseek-v4-flash` |
+| 通义千问 | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `qwen-plus` |
+| OpenAI | `https://api.openai.com/v1` | `gpt-5.4-mini` |
+| Anthropic | `https://api.anthropic.com/v1` | `claude-sonnet-4-6` |
+| SiliconFlow | `https://api.siliconflow.cn/v1` | `deepseek-ai/DeepSeek-V3.2` |
+
+除 MiniMax 使用 `/text/chatcompletion_v2` 外，其余内置服务商使用 `/chat/completions`。Anthropic 当前通过其官方 OpenAI SDK 兼容层接入，适合快速使用和对比测试。
 
 ### 1.2 最简请求示例
 
@@ -20,7 +33,7 @@ Authorization: Bearer xxxxx
 Content-Type: application/json
 
 {
-  "model": "M2-her",
+  "model": "MiniMax-M2.7",
   "messages": [
     {"role": "system", "content": "你是 OPC 伴侣..."},
     {"role": "user", "content": "帮我开始一个 25 分钟的专注任务：写口播稿"}
@@ -35,7 +48,7 @@ Content-Type: application/json
 
 ```json
 {
-  "model": "M2-her",
+  "model": "MiniMax-M2.7",
   "messages": [...],
   "tools": [
     {
@@ -116,11 +129,11 @@ Content-Type: application/json
 }
 ```
 
-### 1.5 Tool 执行后回传给 MiniMax
+### 1.5 Tool 执行后回传给 AI 服务商
 
 ```json
 {
-  "model": "M2-her",
+  "model": "MiniMax-M2.7",
   "messages": [
     {"role": "system", "content": "..."},
     {"role": "user", "content": "帮我开始一个 25 分钟的专注任务：写口播稿"},
@@ -142,7 +155,7 @@ Content-Type: application/json
 }
 ```
 
-MiniMax 再根据 tool result 生成最终回复："已开始 25 分钟计时，14:25 提醒你。"
+AI 服务商再根据 tool result 生成最终回复："已开始 25 分钟计时，14:25 提醒你。"
 
 ### 1.6 流式响应处理
 
@@ -163,7 +176,7 @@ Swift 侧用 `URLSession.bytes(for:)` 流式读取，按行解析。
 ### 1.7 Swift 封装示意
 
 ```swift
-actor MiniMaxClient {
+actor OpenAICompatibleClient {
     let apiKey: String
     let endpoint = URL(string: "https://api.minimax.io/v1/text/chatcompletion_v2")!
 
@@ -268,10 +281,10 @@ GET https://api.notion.com/v1/databases/{database_id}
 
 ### 3.1 用户首次配置流程
 
-1. App 启动检测 Keychain 中是否有 `minimax-api-key` 和 `notion-token`
+1. App 启动检测当前 AI 服务商对应的 Keychain 条目和 `notion-token`
 2. 若没有 → 设置页弹出配置界面
 3. 用户填入 API Key / Notion Token → 调用 Keychain API 存储
-4. 存储成功后，测试一次 API 连通性（MiniMax 发个 hello，Notion 拉一次 user info）
+4. 存储成功后，测试一次 API 连通性（当前 AI 服务商发个 hello，Notion 拉一次 user info）
 5. 显示绿色「已连接」状态
 
 ### 3.2 Keychain 存取封装
@@ -311,8 +324,9 @@ enum KeychainHelper {
 ### 3.3 使用
 
 ```swift
-KeychainHelper.save(key: "minimax-api-key", value: userInput)
-let apiKey = KeychainHelper.load(key: "minimax-api-key")
+let account = KeychainHelper.Account.apiKey(provider: "deepseek")
+KeychainHelper.save(account: account, value: userInput)
+let apiKey = KeychainHelper.load(account: account)
 ```
 
 ---
@@ -354,10 +368,9 @@ POST https://api.notion.com/v1/search
 
 | 场景 | 处理 |
 |------|------|
-| MiniMax 429（限流） | 指数退避重试，最多 3 次 |
-| MiniMax 网络超时 | 15 秒超时，失败提示用户 |
+| AI 服务商 429（限流） | 指数退避重试，最多 3 次 |
+| AI 服务商网络超时 | 15 秒超时，失败提示用户 |
 | Notion 401 | Token 无效，提示重新配置 |
 | Notion 404 | database_id 错误，提示检查映射 |
 | Notion 429 | Notion 限流较宽松，遇到时等 1 秒再试 |
 | 流式响应中途断开 | 保留已收到的内容，追加「[连接中断]」标记 |
-

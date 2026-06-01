@@ -38,31 +38,31 @@ final class ConvertMessageHidesAdjacentReplyTests: XCTestCase {
     }
 }
 
-final class MiniMaxErrorCategorizeTests: XCTestCase {
+final class CompatibleAPIErrorCategorizeTests: XCTestCase {
     func testCategorize401() {
-        if case .unauthorized = MiniMaxClient.ClientError.categorize(httpStatus: 401, body: "bad") {
+        if case .unauthorized = OpenAICompatibleClient.ClientError.categorize(httpStatus: 401, body: "bad") {
             // ok
         } else { XCTFail("401 应归类为 unauthorized") }
     }
 
     func testCategorize429() {
-        if case .rateLimited = MiniMaxClient.ClientError.categorize(httpStatus: 429, body: "") {
+        if case .rateLimited = OpenAICompatibleClient.ClientError.categorize(httpStatus: 429, body: "") {
         } else { XCTFail("429 应归类为 rateLimited") }
     }
 
     func testCategorize500IsRetriable() {
-        let err = MiniMaxClient.ClientError.categorize(httpStatus: 503, body: "down")
+        let err = OpenAICompatibleClient.ClientError.categorize(httpStatus: 503, body: "down")
         XCTAssertTrue(err.isRetriable, "5xx 应可重试")
     }
 
     func testCategorize400IsNotRetriable() {
-        let err = MiniMaxClient.ClientError.categorize(httpStatus: 400, body: "bad input")
+        let err = OpenAICompatibleClient.ClientError.categorize(httpStatus: 400, body: "bad input")
         XCTAssertFalse(err.isRetriable, "400 不应重试")
     }
 
     func testNetworkErrorIsRetriable() {
         let underlying = NSError(domain: "test", code: -1)
-        let err = MiniMaxClient.ClientError.network(underlying: underlying)
+        let err = OpenAICompatibleClient.ClientError.network(underlying: underlying)
         XCTAssertTrue(err.isRetriable)
     }
 }

@@ -175,17 +175,17 @@ public final class AppState: ObservableObject {
     public init() {
         Self.ensureDataDirectory()
         loadData()
-        // 启动时加载凭证（secrets.json，必要时从旧 Keychain 迁移）
+        // 启动时加载凭证（必要时从历史明文文件迁移）
         CredentialCache.shared.loadIfNeeded()
         migrateLegacyPlainTextAPIKey()
         startGlobalTimer()
     }
 
-    /// 兼容历史：早期 config.json 里的明文 apiKey 搬到 secrets.json 并清空。
+    /// 兼容历史：早期 config.json 里的明文 apiKey 搬到 Keychain 并清空。
     private func migrateLegacyPlainTextAPIKey() {
         let plaintext = config.apiConfig.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !plaintext.isEmpty else { return }
-        guard CredentialCache.shared.setMinimaxAPIKey(plaintext) else {
+        guard CredentialCache.shared.setAPIKey(plaintext, provider: config.apiConfig.provider) else {
             logError("credential", "migrateLegacyPlainTextAPIKey 写入 Keychain 失败，保留 config.json 中的旧值")
             return
         }

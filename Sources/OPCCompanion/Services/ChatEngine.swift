@@ -40,15 +40,15 @@ public final class ChatEngine: @unchecked Sendable {
 
     // MARK: - API Key 解析
 
-    static func resolvedAPIKey(fallback: String) -> String {
-        let cached = CredentialCache.shared.getMinimaxAPIKey().trimmingCharacters(in: .whitespacesAndNewlines)
+    static func resolvedAPIKey(provider: String, fallback: String) -> String {
+        let cached = CredentialCache.shared.getAPIKey(provider: provider).trimmingCharacters(in: .whitespacesAndNewlines)
         if !cached.isEmpty { return cached }
         return fallback.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - 对外主入口
 
-    /// 发送消息，触发 MiniMax 流式响应 + tool-call 循环，直到最终自然语言回复。
+    /// 发送消息，触发 AI 流式响应 + tool-call 循环，直到最终自然语言回复。
     /// - Parameter onAssistantDelta: 流式文本增量回调（主线程排队）。tool 执行期间不回调。
     public func sendMessage(
         _ userMessage: String,
@@ -58,10 +58,13 @@ public final class ChatEngine: @unchecked Sendable {
     ) async throws -> String {
         logInfo("chat", "sendMessage begin len=\(userMessage.count)")
         let apiConfig = await MainActor.run { AppState.shared.config.apiConfig }
-        let apiKey = Self.resolvedAPIKey(fallback: apiConfig.apiKey)
+        let apiKey = Self.resolvedAPIKey(provider: apiConfig.provider, fallback: apiConfig.apiKey)
         guard !apiKey.isEmpty else {
             logWarn("chat", "missing api key")
             throw ChatError.missingAPIKey
+        }
+        guard let endpoint = Self.resolvedEndpoint(from: apiConfig) else {
+            throw ChatError.invalidAPIEndpoint
         }
 
         // Wish Clearing session 维护：过期兜底 + 轮数计数。
@@ -81,12 +84,14 @@ public final class ChatEngine: @unchecked Sendable {
             }
         }
 
-        let clientConfig = MiniMaxClient.Config(
+        let clientConfig = OpenAICompatibleClient.Config(
             apiKey: apiKey,
-            endpoint: Self.resolvedEndpoint(from: apiConfig),
-            model: Self.resolvedModel(from: apiConfig)
+            endpoint: endpoint,
+            model: Self.resolvedModel(from: apiConfig),
+            temperature: Self.temperature(from: apiConfig),
+            tokenLimitField: Self.tokenLimitField(from: apiConfig)
         )
-        let client = MiniMaxClient(config: clientConfig)
+        let client = OpenAICompatibleClient(config: clientConfig)
 
         var wire = try await buildInitialWire(
             userMessage: userMessage,
@@ -192,17 +197,22 @@ public final class ChatEngine: @unchecked Sendable {
     }
 
     /// 设置页"测试连接"用的轻量探测。
-    public func testMiniMaxConnection(config: APIConfig) async throws -> String {
-        let apiKey = Self.resolvedAPIKey(fallback: config.apiKey)
+    public func testConnection(config: APIConfig) async throws -> String {
+        let apiKey = Self.resolvedAPIKey(provider: config.provider, fallback: config.apiKey)
         guard !apiKey.isEmpty else { throw ChatError.missingAPIKey }
+        guard let endpoint = Self.resolvedEndpoint(from: config) else {
+            throw ChatError.invalidAPIEndpoint
+        }
 
-        let clientConfig = MiniMaxClient.Config(
+        let clientConfig = OpenAICompatibleClient.Config(
             apiKey: apiKey,
-            endpoint: Self.resolvedEndpoint(from: config),
+            endpoint: endpoint,
             model: Self.resolvedModel(from: config),
-            maxTokens: 16
+            maxTokens: 16,
+            temperature: Self.temperature(from: config),
+            tokenLimitField: Self.tokenLimitField(from: config)
         )
-        let client = MiniMaxClient(config: clientConfig)
+        let client = OpenAICompatibleClient(config: clientConfig)
 
         let stream = client.chatStream(
             messages: [
@@ -221,14 +231,14 @@ public final class ChatEngine: @unchecked Sendable {
     // MARK: - Internal
 
     private func drainStream(
-        client: MiniMaxClient,
+        client: OpenAICompatibleClient,
         wire: [WireMessage],
         onAssistantDelta: @Sendable @escaping (String) -> Void,
         allowRetry: Bool = true
     ) async throws -> (content: String, toolCalls: [WireToolCall], finishReason: String?) {
         do {
             return try await drainStreamOnce(client: client, wire: wire, onAssistantDelta: onAssistantDelta)
-        } catch let error as MiniMaxClient.ClientError where allowRetry && error.isRetriable {
+        } catch let error as OpenAICompatibleClient.ClientError where allowRetry && error.isRetriable {
             // 网络 / 5xx / 限流 类错误做一次自动重试
             try? await Task.sleep(nanoseconds: 800_000_000)
             return try await drainStreamOnce(client: client, wire: wire, onAssistantDelta: onAssistantDelta)
@@ -236,7 +246,7 @@ public final class ChatEngine: @unchecked Sendable {
     }
 
     private func drainStreamOnce(
-        client: MiniMaxClient,
+        client: OpenAICompatibleClient,
         wire: [WireMessage],
         onAssistantDelta: @Sendable @escaping (String) -> Void
     ) async throws -> (content: String, toolCalls: [WireToolCall], finishReason: String?) {
@@ -417,16 +427,20 @@ public final class ChatEngine: @unchecked Sendable {
         return lines.count > 3 ? lines.joined(separator: "\n") : ""
     }
 
-    private static func resolvedEndpoint(from config: APIConfig) -> URL {
-        let base = config.normalizedBaseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        if base.contains("api.minimax") {
-            return URL(string: "\(base)/text/chatcompletion_v2") ?? MiniMaxClient.defaultEndpoint
-        }
-        return MiniMaxClient.defaultEndpoint
+    static func resolvedEndpoint(from config: APIConfig) -> URL? {
+        config.completionEndpoint
     }
 
-    private static func resolvedModel(from config: APIConfig) -> String {
-        config.defaultModel
+    static func resolvedModel(from config: APIConfig) -> String {
+        config.resolvedModel
+    }
+
+    private static func temperature(from config: APIConfig) -> Double? {
+        config.provider == "openai" ? nil : 0.7
+    }
+
+    private static func tokenLimitField(from config: APIConfig) -> String {
+        config.provider == "openai" ? "max_completion_tokens" : "max_tokens"
     }
 
     // MARK: - Errors
@@ -434,12 +448,14 @@ public final class ChatEngine: @unchecked Sendable {
     public enum ChatError: Error, LocalizedError {
         case invalidResponse
         case missingAPIKey
+        case invalidAPIEndpoint
         case commandFailed(String)
 
         public var errorDescription: String? {
             switch self {
             case .invalidResponse: return "无法获取有效响应"
             case .missingAPIKey: return "请先在设置中填写 API Key"
+            case .invalidAPIEndpoint: return "API 地址无效，请到设置页检查"
             case .commandFailed(let message): return message
             }
         }

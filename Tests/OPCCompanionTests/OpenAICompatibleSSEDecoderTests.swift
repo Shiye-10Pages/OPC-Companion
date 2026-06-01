@@ -1,26 +1,26 @@
 import XCTest
 @testable import OPCCompanion
 
-final class MiniMaxSSEDecoderTests: XCTestCase {
+final class OpenAICompatibleSSEDecoderTests: XCTestCase {
     func testEmptyLineReturnsNil() throws {
-        XCTAssertNil(try MiniMaxClient.parseSSELine(""))
-        XCTAssertNil(try MiniMaxClient.parseSSELine("   "))
+        XCTAssertNil(try OpenAICompatibleClient.parseSSELine(""))
+        XCTAssertNil(try OpenAICompatibleClient.parseSSELine("   "))
     }
 
     func testNonDataLineReturnsNil() throws {
-        XCTAssertNil(try MiniMaxClient.parseSSELine(": keep-alive"))
-        XCTAssertNil(try MiniMaxClient.parseSSELine("event: message"))
+        XCTAssertNil(try OpenAICompatibleClient.parseSSELine(": keep-alive"))
+        XCTAssertNil(try OpenAICompatibleClient.parseSSELine("event: message"))
     }
 
     func testDoneMarkerIsDetected() {
-        XCTAssertTrue(MiniMaxClient.isDoneMarker("data: [DONE]"))
-        XCTAssertTrue(MiniMaxClient.isDoneMarker("data:[DONE]"))
-        XCTAssertFalse(MiniMaxClient.isDoneMarker("data: {\"foo\":1}"))
+        XCTAssertTrue(OpenAICompatibleClient.isDoneMarker("data: [DONE]"))
+        XCTAssertTrue(OpenAICompatibleClient.isDoneMarker("data:[DONE]"))
+        XCTAssertFalse(OpenAICompatibleClient.isDoneMarker("data: {\"foo\":1}"))
     }
 
     func testContentDeltaExtracted() throws {
         let line = #"data: {"choices":[{"delta":{"content":"你好"}}]}"#
-        let chunk = try XCTUnwrap(MiniMaxClient.parseSSELine(line))
+        let chunk = try XCTUnwrap(OpenAICompatibleClient.parseSSELine(line))
         XCTAssertEqual(chunk.contentDelta, "你好")
         XCTAssertTrue(chunk.toolCallDeltas.isEmpty)
         XCTAssertNil(chunk.finishReason)
@@ -28,13 +28,13 @@ final class MiniMaxSSEDecoderTests: XCTestCase {
 
     func testFinishReasonExtracted() throws {
         let line = #"data: {"choices":[{"delta":{},"finish_reason":"stop"}]}"#
-        let chunk = try XCTUnwrap(MiniMaxClient.parseSSELine(line))
+        let chunk = try XCTUnwrap(OpenAICompatibleClient.parseSSELine(line))
         XCTAssertEqual(chunk.finishReason, "stop")
     }
 
     func testToolCallDeltaExtracted() throws {
         let line = #"data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"start_timer","arguments":"{\"task\""}}]}}]}"#
-        let chunk = try XCTUnwrap(MiniMaxClient.parseSSELine(line))
+        let chunk = try XCTUnwrap(OpenAICompatibleClient.parseSSELine(line))
         XCTAssertEqual(chunk.toolCallDeltas.count, 1)
         let delta = chunk.toolCallDeltas[0]
         XCTAssertEqual(delta.index, 0)

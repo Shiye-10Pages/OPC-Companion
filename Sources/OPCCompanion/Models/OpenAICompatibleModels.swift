@@ -1,6 +1,6 @@
 import Foundation
 
-/// MiniMax / OpenAI 兼容 chat completion 的消息格式
+/// OpenAI-compatible chat completion 的消息格式
 public struct WireMessage: Codable, Sendable {
     public var role: String  // "system" | "user" | "assistant" | "tool"
     public var content: String?

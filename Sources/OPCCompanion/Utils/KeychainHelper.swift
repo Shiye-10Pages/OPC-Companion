@@ -7,6 +7,10 @@ public enum KeychainHelper {
     public enum Account {
         public static let minimaxAPIKey = "minimax-api-key"
         public static let notionToken = "notion-token"
+
+        public static func apiKey(provider: String) -> String {
+            provider == APIConfig.defaultProvider ? minimaxAPIKey : "api-key-\(provider)"
+        }
     }
 
     @discardableResult

@@ -14,9 +14,9 @@ public final class CredentialCache: @unchecked Sendable {
     private let lock = NSLock()
     /// 仅用于一次性迁移并删除历史明文文件，不再写入。
     private let fileURL: URL
-    private var minimaxAPIKey = ""
+    private var apiKeys: [String: String] = [:]
     private var notionToken = ""
-    private var minimaxLoaded = false
+    private var loadedAPIKeyProviders: Set<String> = []
     private var notionLoaded = false
 
     public init(fileURL: URL = CredentialCache.defaultURL) {
@@ -38,8 +38,11 @@ public final class CredentialCache: @unchecked Sendable {
         let tok = dict["notion_token"] ?? ""
         var migratedOK = true
         if !key.isEmpty {
-            if !Self.isTesting, !KeychainHelper.save(account: KeychainHelper.Account.minimaxAPIKey, value: key) { migratedOK = false }
-            lock.lock(); minimaxAPIKey = key; minimaxLoaded = true; lock.unlock()
+            if !Self.isTesting, !KeychainHelper.save(account: KeychainHelper.Account.apiKey(provider: APIConfig.defaultProvider), value: key) { migratedOK = false }
+            lock.lock()
+            apiKeys[APIConfig.defaultProvider] = key
+            loadedAPIKeyProviders.insert(APIConfig.defaultProvider)
+            lock.unlock()
         }
         if !tok.isEmpty {
             if !Self.isTesting, !KeychainHelper.save(account: KeychainHelper.Account.notionToken, value: tok) { migratedOK = false }
@@ -51,25 +54,48 @@ public final class CredentialCache: @unchecked Sendable {
         }
     }
 
-    public func getMinimaxAPIKey() -> String {
+    public func getAPIKey(provider: String) -> String {
+        let normalizedProvider = Self.normalizedProvider(provider)
         lock.lock()
-        if minimaxLoaded { let v = minimaxAPIKey; lock.unlock(); return v }
+        if loadedAPIKeyProviders.contains(normalizedProvider) {
+            let value = apiKeys[normalizedProvider] ?? ""
+            lock.unlock()
+            return value
+        }
         lock.unlock()
         // 不持锁做 Keychain I/O：授权弹窗期间持锁会让其它线程死锁
-        let fromKeychain = Self.isTesting ? "" : (KeychainHelper.load(account: KeychainHelper.Account.minimaxAPIKey) ?? "")
+        let account = KeychainHelper.Account.apiKey(provider: normalizedProvider)
+        let fromKeychain = Self.isTesting ? "" : (KeychainHelper.load(account: account) ?? "")
         lock.lock(); defer { lock.unlock() }
-        if !minimaxLoaded { minimaxAPIKey = fromKeychain; minimaxLoaded = true }
-        return minimaxAPIKey
+        if !loadedAPIKeyProviders.contains(normalizedProvider) {
+            apiKeys[normalizedProvider] = fromKeychain
+            loadedAPIKeyProviders.insert(normalizedProvider)
+        }
+        return apiKeys[normalizedProvider] ?? ""
+    }
+
+    @discardableResult
+    public func setAPIKey(_ value: String, provider: String) -> Bool {
+        let normalizedProvider = Self.normalizedProvider(provider)
+        let account = KeychainHelper.Account.apiKey(provider: normalizedProvider)
+        if !Self.isTesting, !KeychainHelper.save(account: account, value: value) {
+            OPCLogger.shared.log(.error, "credential", "\(normalizedProvider) API Key 写入 Keychain 失败")
+            return false
+        }
+        lock.lock()
+        apiKeys[normalizedProvider] = value
+        loadedAPIKeyProviders.insert(normalizedProvider)
+        lock.unlock()
+        return true
+    }
+
+    public func getMinimaxAPIKey() -> String {
+        getAPIKey(provider: APIConfig.defaultProvider)
     }
 
     @discardableResult
     public func setMinimaxAPIKey(_ value: String) -> Bool {
-        if !Self.isTesting, !KeychainHelper.save(account: KeychainHelper.Account.minimaxAPIKey, value: value) {
-            OPCLogger.shared.log(.error, "credential", "MiniMax API Key 写入 Keychain 失败")
-            return false
-        }
-        lock.lock(); minimaxAPIKey = value; minimaxLoaded = true; lock.unlock()
-        return true
+        setAPIKey(value, provider: APIConfig.defaultProvider)
     }
 
     public func getNotionToken() -> String {
@@ -94,9 +120,14 @@ public final class CredentialCache: @unchecked Sendable {
 
     public func resetForTesting() {
         lock.lock(); defer { lock.unlock() }
-        minimaxAPIKey = ""
+        apiKeys = [:]
         notionToken = ""
-        minimaxLoaded = false
+        loadedAPIKeyProviders = []
         notionLoaded = false
+    }
+
+    private static func normalizedProvider(_ provider: String) -> String {
+        let value = provider.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return value.isEmpty ? APIConfig.defaultProvider : value
     }
 }

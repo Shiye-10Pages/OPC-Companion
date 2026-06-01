@@ -62,37 +62,114 @@ public struct AppConfig: Codable, Sendable {
 }
 
 public struct APIConfig: Codable, Sendable {
+    public static let defaultProvider = "minimax"
     public static let miniMaxInternationalBaseURL = "https://api.minimax.io/v1"
     public static let legacyMiniMaxBaseURL = "https://api.minimax.chat/v1"
     public static let miniMaxDefaultModel = "MiniMax-M2.7"
+    public static let deepSeekBaseURL = "https://api.deepseek.com"
+    public static let deepSeekDefaultModel = "deepseek-v4-flash"
+    public static let qwenBaseURL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    public static let qwenDefaultModel = "qwen-plus"
+    public static let openAIBaseURL = "https://api.openai.com/v1"
+    public static let openAIDefaultModel = "gpt-5.4-mini"
+    public static let anthropicBaseURL = "https://api.anthropic.com/v1"
+    public static let anthropicDefaultModel = "claude-sonnet-4-6"
+    public static let siliconFlowBaseURL = "https://api.siliconflow.cn/v1"
+    public static let siliconFlowDefaultModel = "deepseek-ai/DeepSeek-V3.2"
 
     public var provider: String
     public var apiKey: String
     public var baseURL: String
+    public var model: String
 
     public init(
-        provider: String = "minimax",
+        provider: String = APIConfig.defaultProvider,
         apiKey: String = "",
-        baseURL: String = APIConfig.miniMaxInternationalBaseURL
+        baseURL: String = "",
+        model: String = ""
     ) {
         self.provider = provider
         self.apiKey = apiKey
-        self.baseURL = baseURL
+        self.baseURL = baseURL.isEmpty ? Self.defaultBaseURL(for: provider) : baseURL
+        self.model = model
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        provider = try c.decodeIfPresent(String.self, forKey: .provider) ?? Self.defaultProvider
+        apiKey = try c.decodeIfPresent(String.self, forKey: .apiKey) ?? ""
+        baseURL = try c.decodeIfPresent(String.self, forKey: .baseURL) ?? Self.defaultBaseURL(for: provider)
+        model = try c.decodeIfPresent(String.self, forKey: .model) ?? ""
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case provider, apiKey, baseURL, model
     }
 
     public var normalizedBaseURL: String {
         if provider == "minimax" && baseURL == Self.legacyMiniMaxBaseURL {
             return Self.miniMaxInternationalBaseURL
         }
-        return baseURL
+        let trimmed = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? Self.defaultBaseURL(for: provider) : trimmed
     }
 
     public var defaultModel: String {
+        Self.defaultModel(for: provider)
+    }
+
+    public var resolvedModel: String {
+        let trimmed = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? defaultModel : trimmed
+    }
+
+    public var providerDisplayName: String {
+        Self.displayName(for: provider)
+    }
+
+    public var completionEndpoint: URL? {
+        let base = normalizedBaseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard !base.isEmpty else { return nil }
+        if base.hasSuffix("/chat/completions") || base.hasSuffix("/text/chatcompletion_v2") {
+            return URL(string: base)
+        }
+        let path = provider == "minimax" ? "text/chatcompletion_v2" : "chat/completions"
+        return URL(string: "\(base)/\(path)")
+    }
+
+    public static func defaultBaseURL(for provider: String) -> String {
         switch provider {
-        case "minimax":
-            return Self.miniMaxDefaultModel
-        default:
-            return Self.miniMaxDefaultModel
+        case "minimax": return miniMaxInternationalBaseURL
+        case "deepseek": return deepSeekBaseURL
+        case "qwen": return qwenBaseURL
+        case "openai": return openAIBaseURL
+        case "anthropic": return anthropicBaseURL
+        case "siliconflow": return siliconFlowBaseURL
+        default: return ""
+        }
+    }
+
+    public static func defaultModel(for provider: String) -> String {
+        switch provider {
+        case "minimax": return miniMaxDefaultModel
+        case "deepseek": return deepSeekDefaultModel
+        case "qwen": return qwenDefaultModel
+        case "openai": return openAIDefaultModel
+        case "anthropic": return anthropicDefaultModel
+        case "siliconflow": return siliconFlowDefaultModel
+        default: return ""
+        }
+    }
+
+    public static func displayName(for provider: String) -> String {
+        switch provider {
+        case "minimax": return "MiniMax"
+        case "deepseek": return "DeepSeek"
+        case "qwen": return "通义千问"
+        case "openai": return "OpenAI"
+        case "anthropic": return "Anthropic"
+        case "siliconflow": return "SiliconFlow"
+        default: return "自定义服务"
         }
     }
 }

@@ -1,6 +1,6 @@
 import Foundation
 
-/// 把 MiniMax 返回的 tool_call 分派到 AppState 对应方法，返回 role=tool 要求的 content（JSON 字符串）。
+/// 把 AI 服务商返回的 tool_call 分派到 AppState 对应方法，返回 role=tool 要求的 content（JSON 字符串）。
 public enum ToolExecutor {
     /// 本次可供 AI 调用的 tools（二期仅本地 tool；Notion 相关延后到三期）。
     public static var availableTools: [[String: Any]] { [

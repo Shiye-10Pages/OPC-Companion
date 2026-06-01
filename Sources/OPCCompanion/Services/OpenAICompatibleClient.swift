@@ -1,6 +1,6 @@
 import Foundation
 
-public final class MiniMaxClient: @unchecked Sendable {
+public final class OpenAICompatibleClient: @unchecked Sendable {
     public static let defaultEndpoint = URL(string: "https://api.minimax.io/v1/text/chatcompletion_v2")!
     public static let defaultModel = "MiniMax-M2.7"
 
@@ -9,20 +9,23 @@ public final class MiniMaxClient: @unchecked Sendable {
         public var endpoint: URL
         public var model: String
         public var maxTokens: Int
-        public var temperature: Double
+        public var temperature: Double?
+        public var tokenLimitField: String
 
         public init(
             apiKey: String,
-            endpoint: URL = MiniMaxClient.defaultEndpoint,
-            model: String = MiniMaxClient.defaultModel,
+            endpoint: URL = OpenAICompatibleClient.defaultEndpoint,
+            model: String = OpenAICompatibleClient.defaultModel,
             maxTokens: Int = 2048,
-            temperature: Double = 0.7
+            temperature: Double? = 0.7,
+            tokenLimitField: String = "max_tokens"
         ) {
             self.apiKey = apiKey
             self.endpoint = endpoint
             self.model = model
             self.maxTokens = maxTokens
             self.temperature = temperature
+            self.tokenLimitField = tokenLimitField
         }
     }
 
@@ -40,14 +43,14 @@ public final class MiniMaxClient: @unchecked Sendable {
         public var errorDescription: String? {
             switch self {
             case .network: return "网络连接失败，请检查你的网络"
-            case .unauthorized: return "MiniMax API Key 无效，请到设置页重新填写"
+            case .unauthorized: return "API Key 无效，请到设置页重新填写"
             case .rateLimited: return "请求过于频繁（限流），请稍后再试"
             case .invalidRequest(let msg): return "请求参数错误：\(msg)"
-            case .server(_, let msg): return "MiniMax 服务暂时不可用：\(msg)"
+            case .server(_, let msg): return "AI 服务暂时不可用：\(msg)"
             case .httpError(let code, let body): return "HTTP \(code)：\(body)"
-            case .invalidResponse: return "MiniMax 响应格式异常"
+            case .invalidResponse: return "AI 服务响应格式异常"
             case .encodingFailed: return "请求体编码失败"
-            case .emptyResponse: return "MiniMax 没有返回任何内容"
+            case .emptyResponse: return "AI 服务没有返回任何内容"
             }
         }
 
@@ -156,9 +159,11 @@ public final class MiniMaxClient: @unchecked Sendable {
             "model": config.model,
             "messages": messagesJSON,
             "stream": stream,
-            "max_tokens": config.maxTokens,
-            "temperature": config.temperature
+            config.tokenLimitField: config.maxTokens
         ]
+        if let temperature = config.temperature {
+            body["temperature"] = temperature
+        }
         if !tools.isEmpty {
             body["tools"] = tools
         }

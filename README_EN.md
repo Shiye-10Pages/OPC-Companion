@@ -64,19 +64,52 @@ For external writes, OPC Companion shows a confirmation card instead of silently
 
 Swift 6, SwiftUI + AppKit (`NSPanel` / `NSStatusItem`), Swift Package Manager, macOS 15+.
 
-Backend: MiniMax streaming with function calling, Notion API v1, and credentials stored in macOS Keychain.
+Backend: OpenAI-compatible Chat Completions with streaming and function calling, Notion API v1, and credentials stored in macOS Keychain.
+
+Built-in providers: MiniMax, DeepSeek, Qwen, OpenAI, Anthropic, SiliconFlow, and custom OpenAI-compatible APIs. API keys are stored separately for each provider. Anthropic currently uses its official OpenAI SDK compatibility layer, which is intended for quick testing and comparison.
 
 ## Privacy Boundary
 
 OPC Companion keeps local capture and AI conversations deliberately separate:
 
 - **Quick Capture stays local**: hotkey notes are stored under `~/.opc-companion/`. They are not sent to AI.
-- **Conversations send context**: to preserve continuity, conversations send local context to **MiniMax**, including long-term memory, profile data, recent daily notes, the latest weekly report, current tasks, inbox state, memory search results, and Notion query results when relevant.
+- **Conversations send context**: to preserve continuity, conversations send local context to **the AI provider selected in Settings**, including long-term memory, profile data, recent daily notes, the latest weekly report, current tasks, inbox state, memory search results, and Notion query results when relevant.
 - **Credentials stay in Keychain**: API keys and Notion tokens are never stored as plaintext files or committed to the repository.
 
 In short: **if you do not want it sent out, capture it locally instead of discussing it in chat.**
 
-## Build
+## Install
+
+OPC Companion currently supports **macOS only** and requires macOS 15 or later. The current installation flow builds from source. A notarized DMG installer is not available yet.
+
+### Option 1: Paste One Command
+
+Open Terminal, paste the full line below, and press Enter:
+
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Shiye-10Pages/OPC-Companion/feature/focused-conversation-memory/scripts/install.sh)"
+```
+
+The script downloads the source, builds the app, installs it at `~/Applications/OPCCompanion.app`, and launches it. If macOS asks you to install Xcode Command Line Tools, finish that installation and run the same command again.
+
+You can also paste this request into your preferred AI coding assistant:
+
+```text
+Please install OPC Companion on this Mac. Run the command below, explain any errors, and continue until the app launches:
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Shiye-10Pages/OPC-Companion/feature/focused-conversation-memory/scripts/install.sh)"
+```
+
+### Option 2: Download the ZIP
+
+1. Click [Download the OPC Companion source ZIP](https://github.com/Shiye-10Pages/OPC-Companion/archive/refs/heads/feature/focused-conversation-memory.zip).
+2. Double-click the ZIP file to extract it.
+3. Open Terminal, type `cd `, drag the extracted folder into Terminal, and press Enter.
+4. Paste `./scripts/install-local.sh` and press Enter.
+5. After launch, click the menu bar bubble icon, open Settings, choose a supported AI provider, and enter its API key. The Notion token is optional.
+
+If macOS blocks the first launch, open System Settings, go to Privacy & Security, locate OPCCompanion, and choose Open Anyway.
+
+### Developer Build
 
 ```bash
 swift build

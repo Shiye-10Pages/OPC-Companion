@@ -7,9 +7,10 @@ struct SettingsView: View {
     @State private var debounceTimer: Timer?
     // showingTaskSheet / editingTask 已迁到 AppState（showScheduledTaskForm + editingScheduledTask）
     @State private var selectedVoice = ""
-    @State private var selectedProvider = "siliconflow"
+    @State private var selectedProvider = APIConfig.defaultProvider
     @State private var apiKey = ""
     @State private var customBaseURL = ""
+    @State private var customModel = ""
     @State private var connectionStatus = ""
     @State private var proxyEnabled = false
     @State private var proxyHost = "127.0.0.1"
@@ -33,6 +34,23 @@ struct SettingsView: View {
                 var cfg = state.config
                 cfg.entryMode = newValue
                 state.config = cfg
+                state.saveConfig()
+            }
+        )
+    }
+
+    private var providerBinding: Binding<String> {
+        Binding(
+            get: { selectedProvider },
+            set: { newValue in
+                selectedProvider = newValue
+                state.config.apiConfig.provider = newValue
+                state.config.apiConfig.baseURL = APIConfig.defaultBaseURL(for: newValue)
+                state.config.apiConfig.model = ""
+                customBaseURL = state.config.apiConfig.baseURL
+                customModel = state.config.apiConfig.defaultModel
+                apiKey = CredentialCache.shared.getAPIKey(provider: newValue)
+                connectionStatus = ""
                 state.saveConfig()
             }
         )
@@ -72,7 +90,7 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("隐私边界")
                         .font(.headline)
-                    Text("「记一下」纯本地，不联网、不发送给 AI。\n「聊聊」为了让助手记得你，每次对话会把长期记忆、用户画像、近几天 daily、最近周报和当前任务/收件箱状态发送给 MiniMax；对话中的记忆检索与 Notion 查询结果也会回传给模型。\nAPI key 与 Notion token 存于 Keychain，绝不明文落盘。")
+                    Text("「记一下」纯本地，不联网、不发送给 AI。\n「聊聊」为了让助手记得你，每次对话会把长期记忆、用户画像、近几天 daily、最近周报和当前任务/收件箱状态发送给你选择的 AI 服务商；对话中的记忆检索与 Notion 查询结果也会回传给模型。\nAPI key 与 Notion token 存于 Keychain，绝不明文落盘。")
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -122,40 +140,44 @@ struct SettingsView: View {
                     Text("API 配置")
                         .font(.headline)
 
-                    Picker("提供商", selection: $selectedProvider) {
+                    Picker("提供商", selection: providerBinding) {
                         Text("MiniMax (海外版)").tag("minimax")
+                        Text("DeepSeek").tag("deepseek")
+                        Text("通义千问").tag("qwen")
+                        Text("OpenAI").tag("openai")
+                        Text("Anthropic (兼容模式)").tag("anthropic")
                         Text("SiliconFlow").tag("siliconflow")
-                        Text("自定义").tag("custom")
-                    }
-                    .onChange(of: selectedProvider) { _, newValue in
-                        state.config.apiConfig.provider = newValue
-                        // 切换时更新默认 URL
-                        if newValue == "minimax" {
-                            state.config.apiConfig.baseURL = APIConfig.miniMaxInternationalBaseURL
-                        } else if newValue == "siliconflow" {
-                            state.config.apiConfig.baseURL = "https://api.siliconflow.cn/v1"
-                        }
-                        customBaseURL = state.config.apiConfig.baseURL
-                        state.saveConfig()
+                        Text("自定义 OpenAI-compatible").tag("custom")
                     }
 
                     SecureField("API Key（存储在 macOS Keychain）", text: $apiKey)
                         .textFieldStyle(.roundedBorder)
                         .onChange(of: apiKey) { _, newValue in
-                            if !CredentialCache.shared.setMinimaxAPIKey(newValue) {
-                                state.showBanner("MiniMax API Key 保存失败，请重试（详见日志）", kind: .error, duration: 5.0)
+                            if !CredentialCache.shared.setAPIKey(newValue, provider: selectedProvider) {
+                                state.showBanner("\(APIConfig.displayName(for: selectedProvider)) API Key 保存失败，请重试（详见日志）", kind: .error, duration: 5.0)
                             } else if !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                                 UserDefaults.standard.set(true, forKey: AppBrand.onboardingCompletionKey)
                             }
                         }
 
-                    if selectedProvider == "custom" {
-                        TextField("API 地址", text: $customBaseURL)
-                            .textFieldStyle(.roundedBorder)
-                            .onChange(of: customBaseURL) { _, newValue in
-                                state.config.apiConfig.baseURL = newValue
-                                state.saveConfig()
-                            }
+                    TextField("模型名称", text: $customModel)
+                        .textFieldStyle(.roundedBorder)
+                        .onChange(of: customModel) { _, newValue in
+                            state.config.apiConfig.model = newValue
+                            state.saveConfig()
+                        }
+
+                    TextField("API 地址", text: $customBaseURL)
+                        .textFieldStyle(.roundedBorder)
+                        .onChange(of: customBaseURL) { _, newValue in
+                            state.config.apiConfig.baseURL = newValue
+                            state.saveConfig()
+                        }
+
+                    if selectedProvider == "anthropic" {
+                        Text("Anthropic 当前通过官方 OpenAI SDK 兼容层接入，适合快速使用和对比测试。")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
 
                     Button("测试连接") {
@@ -216,7 +238,7 @@ struct SettingsView: View {
 
                     HStack(spacing: 16) {
                         StatusIndicator(name: "Notion", isConnected: checkNotionConnection())
-                        StatusIndicator(name: "MiniMax", isConnected: checkMiniMaxConnection())
+                        StatusIndicator(name: APIConfig.displayName(for: selectedProvider), isConnected: checkAIConnection())
                     }
                 }
 
@@ -232,13 +254,14 @@ struct SettingsView: View {
             systemPromptText = state.systemPrompt
             selectedVoice = state.config.voice.ttsVoice
             selectedProvider = state.config.apiConfig.provider
-            apiKey = CredentialCache.shared.getMinimaxAPIKey()
+            apiKey = CredentialCache.shared.getAPIKey(provider: selectedProvider)
             if state.config.apiConfig.provider == "minimax",
                state.config.apiConfig.baseURL == APIConfig.legacyMiniMaxBaseURL {
                 state.config.apiConfig.baseURL = APIConfig.miniMaxInternationalBaseURL
                 state.saveConfig()
             }
             customBaseURL = state.config.apiConfig.normalizedBaseURL
+            customModel = state.config.apiConfig.resolvedModel
             proxyEnabled = state.config.proxyConfig.enabled
             proxyHost = state.config.proxyConfig.host
             proxyPort = state.config.proxyConfig.port
@@ -270,7 +293,7 @@ struct SettingsView: View {
                         .font(.headline)
                     Spacer()
                 }
-                checklistRow(done: apiKeyOK, label: "填写 MiniMax API Key", required: true)
+                checklistRow(done: apiKeyOK, label: "填写 \(APIConfig.displayName(for: selectedProvider)) API Key", required: true)
                 checklistRow(done: notionTokenOK, label: "填写 Notion Token", required: false)
                 checklistRow(done: dbMapped, label: "绑定至少一个 Notion 数据库", required: false)
             }
@@ -408,8 +431,8 @@ struct SettingsView: View {
         !CredentialCache.shared.getNotionToken().isEmpty
     }
 
-    private func checkMiniMaxConnection() -> Bool {
-        !CredentialCache.shared.getMinimaxAPIKey().isEmpty
+    private func checkAIConnection() -> Bool {
+        !CredentialCache.shared.getAPIKey(provider: selectedProvider).isEmpty
     }
 
     private func testAPIConnection() {
@@ -422,15 +445,9 @@ struct SettingsView: View {
 
         Task {
             do {
-                if selectedProvider == "minimax" {
-                    let config = APIConfig(provider: selectedProvider, apiKey: apiKey, baseURL: customBaseURL)
-                    _ = try await ChatEngine.shared.testMiniMaxConnection(config: config)
-                    connectionStatus = "MiniMax 连接成功！"
-                } else {
-                    let testPrompt = "Say 'ok' if you receive this."
-                    let response = try await ChatEngine.shared.sendMessage(testPrompt, systemPrompt: "", useConversationHistory: false)
-                    connectionStatus = response.isEmpty ? "响应异常：空响应" : "连接成功！"
-                }
+                let config = APIConfig(provider: selectedProvider, apiKey: apiKey, baseURL: customBaseURL, model: customModel)
+                _ = try await ChatEngine.shared.testConnection(config: config)
+                connectionStatus = "\(config.providerDisplayName) 连接成功！"
             } catch {
                 connectionStatus = "连接失败: \(error.localizedDescription)"
             }

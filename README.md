@@ -63,19 +63,52 @@ OPC 伴侣不是另一个 To-Do。它先帮你确认眼前最重要的事，再�
 ## 技术栈
 
 Swift 6 · SwiftUI + AppKit（NSPanel / NSStatusItem）· Swift Package Manager · macOS 15+
-后端：MiniMax（流式 + function calling）· Notion API v1 · 凭证存 macOS Keychain
+后端：OpenAI-compatible Chat Completions（流式 + function calling）· Notion API v1 · 凭证存 macOS Keychain
+
+内置支持：MiniMax、DeepSeek、通义千问、OpenAI、Anthropic、SiliconFlow，以及自定义 OpenAI-compatible API。每个服务商的 API Key 分开存储，切换时不会互相覆盖。Anthropic 当前通过其官方 OpenAI SDK 兼容层接入，适合快速使用和对比测试。
 
 ## 隐私边界
 
 OPC 伴侣把数据分成两条互不混淆的路径，使用前请知悉：
 
 - **记一下（随手记）= 纯本地**：热键捕获的内容只写入本机 `~/.opc-companion/`，**不联网、不发送给 AI**。
-- **聊聊（对话）= 会外发上下文**：为了让助手「记得你」，每次对话默认会把以下本地内容拼进请求发送给 **MiniMax**——长期记忆（MEMORY.md）、用户画像（USER.md）、近几天的 daily note、最近一期周报，以及当前任务/收件箱状态；对话中触发的记忆检索、Notion 查询结果也会回传给模型以生成回复。
+- **聊聊（对话）= 会外发上下文**：为了让助手「记得你」，每次对话默认会把以下本地内容拼进请求发送给**你在设置中选择的 AI 服务商**——长期记忆（MEMORY.md）、用户画像（USER.md）、近几天的 daily note、最近一期周报，以及当前任务/收件箱状态；对话中触发的记忆检索、Notion 查询结果也会回传给模型以生成回复。
 - **凭证**：API key 与 Notion token 存于 macOS Keychain，绝不明文落盘、绝不写入仓库。
 
 一句话：**不想外发的，用「记一下」接住、别在「聊聊」里说。**
 
-## 构建运行
+## 安装
+
+目前**只有 macOS 版本**，要求 macOS 15 或更高版本。当前采用源码构建安装，暂未提供经过 Apple 公证的 DMG 安装包。
+
+### 方法一：复制一条命令
+
+打开「终端」，粘贴下面整行命令并回车：
+
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Shiye-10Pages/OPC-Companion/feature/focused-conversation-memory/scripts/install.sh)"
+```
+
+脚本会下载源码、编译、安装到 `~/Applications/OPCCompanion.app`，然后自动启动。如果系统弹出 Xcode Command Line Tools 安装窗口，先完成安装，再重新执行同一条命令。
+
+也可以把下面这段话直接发给你常用的 AI 编程助手：
+
+```text
+请帮我在这台 Mac 上安装 OPC 伴侣。执行下面的命令，遇到报错时解释原因并继续处理：
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Shiye-10Pages/OPC-Companion/feature/focused-conversation-memory/scripts/install.sh)"
+```
+
+### 方法二：下载 ZIP 后安装
+
+1. 点击 [下载 OPC 伴侣源码 ZIP](https://github.com/Shiye-10Pages/OPC-Companion/archive/refs/heads/feature/focused-conversation-memory.zip)。
+2. 双击 ZIP 解压。
+3. 打开「终端」，输入 `cd `，把刚解压的文件夹拖进终端窗口，然后回车。
+4. 粘贴 `./scripts/install-local.sh` 并回车。
+5. 首次启动后，点击菜单栏气泡图标，进入设置，选择任意一个支持的 AI 服务商并填写 API Key。Notion Token 是可选项。
+
+如果 macOS 阻止首次打开，请前往「系统设置 → 隐私与安全性」，找到 OPCCompanion 并点击「仍要打开」。
+
+### 开发者构建
 
 ```bash
 swift build                 # 开发构建

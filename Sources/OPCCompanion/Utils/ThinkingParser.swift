@@ -33,7 +33,7 @@ public enum ThinkingParser {
 
     /// 兼容期兜底：老 system prompt 教过模型在文本尾附加 `[ACTION:timer:start:{...}]` 等指令串。
     /// 当前已改走 function calling，prompt 也删了教程，但历史 jsonl / 个别 bypass 还可能泄漏。
-    /// 这里统一在展示前剥离，避免用户看到裸露指令串；发回 MiniMax 的 wire history 也会复用此函数。
+    /// 这里统一在展示前剥离，避免用户看到裸露指令串；发回 AI 服务商的 wire history 也会复用此函数。
     public static func stripLegacyActionTags(_ text: String) -> String {
         let pattern = #"\[ACTION:[^\]]*\]"#
         guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {

@@ -6,7 +6,7 @@ OPC 伴侣是一个常驻 macOS 的 AI 工作节奏教练。它通过快捷键�
 
 **目标用户：** 独立创作者 / 内容工作者，日常使用 Notion 管理任务和日程，需要 AI 辅助保持专注和节奏。
 
-**技术栈：** Swift (SwiftUI + AppKit)，macOS 原生应用，MiniMax API（`MiniMax-M2.7`，HTTPS 直连）作为 AI 后端，Notion API v1 直连，凭证存 macOS Keychain。
+**技术栈：** Swift (SwiftUI + AppKit)，macOS 原生应用，OpenAI-compatible Chat Completions（流式 + function calling）作为 AI 后端，Notion API v1 直连，凭证存 macOS Keychain。
 
 ---
 
@@ -148,7 +148,7 @@ OPC 伴侣是一个常驻 macOS 的 AI 工作节奏教练。它通过快捷键�
 │                                      │
 │  ┌─ 连接状态 ─────────────────────┐  │
 │  │ Notion   🟢 已连接              │  │
-│  │ MiniMax     🟢 可用             │  │
+│  │ AI 服务商   🟢 可用             │  │
 │  └────────────────────────────────┘  │
 │                                      │
 ├──────────────────────────────────────┤
@@ -174,7 +174,7 @@ OPC 伴侣是一个常驻 macOS 的 AI 工作节奏教练。它通过快捷键�
   - 启用/禁用开关
 
 **连接状态：**
-- 显示 Notion 和 MiniMax 的连接状态
+- 显示 Notion 和当前 AI 服务商的连接状态
 - 绿色圆点 = 正常，红色 = 异常
 
 ---
@@ -187,7 +187,7 @@ OPC 伴侣是一个常驻 macOS 的 AI 工作节奏教练。它通过快捷键�
 2. 用户打字，按 Enter 发送
 3. 消息显示在对话区（用户侧）
 4. 显示"正在思考..."打字指示器
-5. 调用 MiniMax 获取回复（流式）
+5. 调用当前 AI 服务商获取回复（流式）
 6. 回复以文字显示在对话区（AI 侧）
 7. 不触发语音朗读
 
@@ -199,7 +199,7 @@ OPC 伴侣是一个常驻 macOS 的 AI 工作节奏教练。它通过快捷键�
 4. SFSpeechRecognizer 实时转写，文字显示在输入框中
 5. 用户松开按键（或再次点击麦克风），停止录音
 6. 转写文字自动发送
-7. 调用 MiniMax 获取回复（流式）
+7. 调用当前 AI 服务商获取回复（流式）
 8. 回复以文字显示 + AVSpeechSynthesizer 语音朗读（同时进行）
 
 ### 4.3 定时提醒
@@ -228,14 +228,14 @@ OPC 伴侣是一个常驻 macOS 的 AI 工作节奏教练。它通过快捷键�
 
 **读取操作（无需确认）：**
 1. 用户说"看看我今天的日程" / "查一下待办"
-2. MiniMax 返回 function call（`query_notion_database`）
+2. 当前 AI 服务商返回 function call（`query_notion_database`）
 3. App 直接调用 Notion API 执行
-4. 结果回传给 MiniMax 生成自然语言摘要
+4. 结果回传给当前 AI 服务商生成自然语言摘要
 5. 显示在对话中
 
 **写入操作（需要确认）：**
 1. 用户说"帮我加一条待办：写周报"
-2. MiniMax 返回 function call（`create_notion_page`）
+2. 当前 AI 服务商返回 function call（`create_notion_page`）
 3. App 拦截该 function call，**不立即执行**，而是在面板显示确认卡片：
    ```
    ┌─ 即将执行 Notion 操作 ──────────┐
@@ -322,9 +322,9 @@ OPC 伴侣是一个常驻 macOS 的 AI 工作节奏教练。它通过快捷键�
   "system_prompt_file": "~/.opc-companion/system-prompt.txt",
   "ai": {
     "provider": "minimax",
-    "endpoint": "https://api.minimax.io/v1/text/chatcompletion_v2",
+    "base_url": "https://api.minimax.io/v1",
     "model": "MiniMax-M2.7",
-    "api_key_keychain": "com.shiye.opc-companion.minimax-key",
+    "api_key_keychain": "minimax-api-key",
     "max_tokens": 2048,
     "temperature": 0.7
   },
@@ -344,7 +344,7 @@ OPC 伴侣是一个常驻 macOS 的 AI 工作节奏教练。它通过快捷键�
 }
 ```
 
-**安全要求：** API Key（MiniMax 和 Notion token）必须存储在 macOS Keychain，不能以明文写入 config.json。config.json 只存储 Keychain 中的条目名。
+**安全要求：** 所有 AI 服务商 API Key 和 Notion token 必须存储在 macOS Keychain，不能以明文写入 config.json。AI 服务商之间使用独立的 Keychain 条目，切换时不能互相覆盖。
 
 ---
 
@@ -390,11 +390,12 @@ OPC 伴侣是一个常驻 macOS 的 AI 工作节奏教练。它通过快捷键�
 
 ## 9. AI 后端与 Function Calling
 
-### 9.1 AI 后端：MiniMax
+### 9.1 AI 后端：OpenAI-compatible Chat Completions
 
-- **Endpoint：** `https://api.minimax.io/v1/text/chatcompletion_v2`
+- **内置服务商：** MiniMax、DeepSeek、通义千问、OpenAI、Anthropic、SiliconFlow
+- **自定义服务商：** 可填写 OpenAI-compatible API 地址和模型名
 - **认证：** `Authorization: Bearer <API_KEY>` header
-- **模型：** `MiniMax-M2.7`（支持 function calling）
+- **Anthropic：** 当前通过官方 OpenAI SDK 兼容层接入，适合快速使用和对比测试
 - **对话维护：** 本地保存 messages 数组，每次请求带完整历史（或截断至最近 N 轮）
 - **流式响应：** `stream: true`，UI 实时渲染，体验比等整句更流畅
 
@@ -414,12 +415,12 @@ OPC 伴侣是一个常驻 macOS 的 AI 工作节奏教练。它通过快捷键�
 | `review_inbox` | 打开随手记收件箱 | 否 | 无 |
 
 **执行流程：**
-1. MiniMax 返回 `tool_calls` 数组
+1. 当前 AI 服务商返回 `tool_calls` 数组
 2. 对每个 tool call，Swift 侧判断是否需要确认
 3. 需要确认的 → UI 弹出确认卡片，用户确认后执行
 4. 不需要确认的 → 立即执行
-5. 执行结果作为 `role: "tool"` 的消息追加到历史，再次请求 MiniMax
-6. MiniMax 生成最终自然语言回复展示给用户
+5. 执行结果作为 `role: "tool"` 的消息追加到历史，再次请求当前 AI 服务商
+6. 当前 AI 服务商生成最终自然语言回复展示给用户
 
 ### 9.3 Notion 直连 API
 
@@ -486,7 +487,7 @@ Notion Calendar 本质是带日期属性的数据库，通过 `/databases/{id}/q
 ### P0（必须实现）
 
 - [ ] Option+Space 全局快捷键唤起/关闭中央浮层面板
-- [ ] 面板中可输入文字，发送后收到 MiniMax 回复（流式渲染）
+- [ ] 面板中可输入文字，发送后收到当前 AI 服务商回复（流式渲染）
 - [ ] 长按 Option+Space 进入语音输入，AI 语音+文字回复
 - [ ] 菜单栏常驻图标，颜色随状态变化
 - [ ] 当日任务置顶显示，支持计时倒计时

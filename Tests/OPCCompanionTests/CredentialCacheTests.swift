@@ -39,6 +39,17 @@ final class CredentialCacheTests: XCTestCase {
                        "凭证绝不能明文写入 secrets.json")
     }
 
+    func testProvidersKeepSeparateAPIKeys() {
+        let cache = CredentialCache(fileURL: tempURL)
+
+        cache.setAPIKey("deepseek-key", provider: "deepseek")
+        cache.setAPIKey("openai-key", provider: "openai")
+
+        XCTAssertEqual(cache.getAPIKey(provider: "deepseek"), "deepseek-key")
+        XCTAssertEqual(cache.getAPIKey(provider: "openai"), "openai-key")
+        XCTAssertEqual(cache.getMinimaxAPIKey(), "")
+    }
+
     func testLegacyFileMigratedAndDeleted() throws {
         // 历史明文 secrets.json 存在 → loadIfNeeded 迁移进缓存并删除明文文件
         let dir = tempURL.deletingLastPathComponent()

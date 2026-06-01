@@ -140,7 +140,7 @@ struct ChatView: View {
             .animation(AppAnimations.quick, value: notionConfirm.showConfirmation)
             .onAppear {
                 focusInputSoon()
-                if !CredentialCache.shared.getMinimaxAPIKey().isEmpty {
+                if !CredentialCache.shared.getAPIKey(provider: state.config.apiConfig.provider).isEmpty {
                     hasCompletedInitialOnboarding = true
                 }
             }
@@ -154,7 +154,7 @@ struct ChatView: View {
 
     @ViewBuilder
     private var chatEmptyState: some View {
-        if CredentialCache.shared.getMinimaxAPIKey().isEmpty {
+        if CredentialCache.shared.getAPIKey(provider: state.config.apiConfig.provider).isEmpty {
             onboardingNotConfigured
         } else {
             welcomeTips
@@ -169,7 +169,7 @@ struct ChatView: View {
             Text("先去设置填 API Key")
                 .font(.headline)
             VStack(spacing: 4) {
-                Text("OPC 伴侣需要 MiniMax API Key 才能对话")
+                Text("OPC 伴侣需要 AI API Key 才能对话")
                 Text("可选填 Notion Token 使用 Notion 功能")
             }
             .font(.caption)
