@@ -64,6 +64,18 @@ struct SettingsView: View {
 
                 Divider()
 
+                // 隐私边界（明确告知「聊聊」会外发哪些本地上下文）
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("隐私边界")
+                        .font(.headline)
+                    Text("「记一下」纯本地，不联网、不发送给 AI。\n「聊聊」为了让助手记得你，每次对话会把长期记忆、用户画像、近几天 daily、最近周报和当前任务/收件箱状态发送给 MiniMax；对话中的记忆检索与 Notion 查询结果也会回传给模型。\nAPI key 与 Notion token 存于 Keychain，绝不明文落盘。")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Divider()
+
                 // 系统提示词
                 VStack(alignment: .leading, spacing: 8) {
                     Text("系统提示词")

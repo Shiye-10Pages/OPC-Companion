@@ -9,8 +9,9 @@ macOS 原生菜单栏 AI 助手应用。Swift + SwiftUI + AppKit 混合架构，
 - **语言：** Swift 6.3
 - **UI：** SwiftUI（视图层）+ AppKit（NSPanel, NSStatusItem, NSEvent）
 - **语音：** Speech framework (SFSpeechRecognizer) + AVFoundation (AVSpeechSynthesizer)
-- **AI 后端：** Claude CLI (`/Users/shiye/.local/bin/claude`)，通过 Process 子进程调用
-- **Notion：** 通过 Claude CLI 的 `--mcp-config` 加载 Notion MCP Server
+- **AI 后端：** MiniMax API（`MiniMax-M2.7` 模型），URLSession HTTPS 直连，流式 + function calling
+- **Notion：** Notion API v1 直连（URLSession，HTTP）
+- **凭证：** macOS Keychain（API key 与 Notion token，绝不明文落盘）
 - **构建：** Swift Package Manager → build.sh 打包为 .app bundle
 - **最低系统：** macOS 15.0+
 
@@ -23,25 +24,31 @@ macOS 原生菜单栏 AI 助手应用。Swift + SwiftUI + AppKit 混合架构，
 
 两者共享同一个 AppState（@Observable / ObservableObject），数据始终同步。
 
-### Claude CLI 调用规范
+### MiniMax 调用规范
 
 ```swift
-// 必须使用以下参数组合
-let process = Process()
-process.executableURL = URL(fileURLWithPath: "/Users/shiye/.local/bin/claude")
-process.arguments = [
-    "-p",                                          // 非交互模式
-    "--system-prompt", systemPrompt,               // 自定义提示词
-    "--session-id", "opc-\(dateString)",           // 按天分会话
-    "--output-format", "json",                     // JSON 输出便于解析
-    "--mcp-config", mcpConfigPath,                 // Notion 接入（需要时）
-    userMessage                                    // 用户消息（最后一个参数）
+// Endpoint
+let url = URL(string: "https://api.minimax.io/v1/text/chatcompletion_v2")!
+
+// Request body
+let body: [String: Any] = [
+    "model": "MiniMax-M2.7",
+    "messages": messagesHistory,   // system/user/assistant/tool 完整历史
+    "tools": toolsDefinition,      // function calling
+    "stream": true,
+    "max_tokens": 2048,
+    "temperature": 0.7
 ]
+
+// Headers
+request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 ```
 
-- session-id 格式：`opc-YYYY-MM-DD`，每天自动新建
-- JSON 输出需解析 `result.content[0].text` 获取回复文本
-- Notion 写操作：解析回复中的 `[ACTION:notion:...]` 标记，在 UI 层拦截并展示确认
+- 流式响应（`URLSession.bytes` / SSE），首 token 尽快渲染
+- messages 在本地维护，每次带完整（或按 token 预算截断）历史
+- Tool call 执行完追加 `role: "tool"` 消息，再次请求 MiniMax 生成最终文本
+- 写操作（如 Notion create/update）必须先经 UI 确认，不在 Service 内直接执行
 
 ### 数据目录
 
@@ -72,7 +79,7 @@ Sources/OPCCompanion/
 
 - 使用 Swift Concurrency（async/await, @MainActor）
 - UI 更新必须在 @MainActor
-- Claude CLI 调用在 Task {} 中异步执行
+- 网络调用用 `URLSession.bytes` / `AsyncThrowingStream` 处理流式响应
 - 语音识别回调通过 @MainActor 回到主线程
 
 ### UI 规范
@@ -86,7 +93,7 @@ Sources/OPCCompanion/
 
 ### 错误处理
 
-- Claude CLI 调用失败 → 在对话中显示友好错误消息，不 crash
+- MiniMax 调用失败 → 在对话中显示友好错误消息，不 crash
 - Notion 连接失败 → 设置页状态变红，对话中提示用户检查配置
 - 语音权限拒绝 → 弹出引导用户去系统偏好设置开启
 - 所有错误包含定位信息（文件名 + 函数名 + 错误描述）
@@ -109,7 +116,7 @@ build.sh 负责：
 2. 创建 OPCCompanion.app/Contents/{MacOS, Resources} 目录
 3. 复制二进制到 MacOS/
 4. 复制 Info.plist 到 Contents/
-5. 复制 notion-mcp.json 到 Resources/
+5. 复制 AppIcon.icns 到 Resources/
 6. 用 ad-hoc 签名：`codesign -s - OPCCompanion.app`
 
 ## 关键实现细节
@@ -130,10 +137,10 @@ build.sh 负责：
 
 ### Notion 写操作确认流程
 
-1. ChatEngine 解析 Claude 回复中的 `[ACTION:notion:...]`
-2. 将 action 信息传递给 UI 层
+1. MiniMax 返回 `create_notion_page` 等写操作 tool call
+2. ChatEngine 识别是写操作，**不立即执行**，把 tool call 传给 UI 层
 3. UI 显示确认卡片（内嵌在对话流中，不是弹窗）
-4. 用户点击"确认" → ChatEngine 再次调用 Claude CLI 执行操作
+4. 用户点击"确认" → ChatEngine 调用 NotionService 执行，结果作为 `role: "tool"` 追加后再次请求 MiniMax
 5. 用户点击"取消" → 在对话中显示"已取消"
 
 ### 定时任务调度

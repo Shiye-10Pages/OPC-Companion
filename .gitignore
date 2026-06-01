@@ -28,3 +28,6 @@ test_coach.py
 
 # Playwright MCP 临时快照
 .playwright-mcp/
+
+# 本地调查日志（含本机路径与排障过程，仅本地保留，不入仓库）
+.bug-investigations/

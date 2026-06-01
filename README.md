@@ -31,6 +31,16 @@ OPC 伴侣是一个**思绪整理场**：把还没成形的念头、半句话、
 Swift 6 · SwiftUI + AppKit（NSPanel / NSStatusItem）· Swift Package Manager · macOS 15+
 后端：MiniMax（流式 + function calling）· Notion API v1 · 凭证存 macOS Keychain
 
+## 隐私边界
+
+OPC 伴侣把数据分成两条互不混淆的路径，使用前请知悉：
+
+- **记一下（随手记）= 纯本地**：热键捕获的内容只写入本机 `~/.opc-companion/`，**不联网、不发送给 AI**。
+- **聊聊（对话）= 会外发上下文**：为了让助手「记得你」，每次对话默认会把以下本地内容拼进请求发送给 **MiniMax**——长期记忆（MEMORY.md）、用户画像（USER.md）、近几天的 daily note、最近一期周报，以及当前任务/收件箱状态；对话中触发的记忆检索、Notion 查询结果也会回传给模型以生成回复。
+- **凭证**：API key 与 Notion token 存于 macOS Keychain，绝不明文落盘、绝不写入仓库。
+
+一句话：**不想外发的，用「记一下」接住、别在「聊聊」里说。**
+
 ## 构建运行
 
 ```bash
@@ -53,5 +63,5 @@ OPC 伴侣 由 **十页AI** 打造。
 
 ## 许可
 
-本项目采用 **CC BY-NC-SA 4.0**（署名-非商业性使用-相同方式共享）。
-你可以自由学习、修改、传播，但**须署名「十页AI」、不得用于商业目的、衍生作品同样以本协议开放**。详见 [LICENSE](LICENSE)。
+本项目采用 **PolyForm Noncommercial License 1.0.0**（专为源代码设计的非商业许可）。
+你可以自由学习、修改、分发，用于任何**非商业**目的，但**须保留版权署名「十页AI」（许可中的 `Required Notice:` 行）、不得用于商业目的**。详见 [LICENSE](LICENSE)。
