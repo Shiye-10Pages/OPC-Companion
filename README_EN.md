@@ -82,12 +82,22 @@ In short: **if you do not want it sent out, capture it locally instead of discus
 
 OPC Companion currently supports **macOS only** and requires macOS 15 or later. The current installation flow builds from source. A notarized DMG installer is not available yet.
 
-### Option 1: Paste One Command
+> The GitHub repository is currently private. The public one-command installer and ZIP download below will become available after the repository is made public. Until then, installation is limited to developers with repository access.
+
+### Current Private Repository: Install with Access
+
+```bash
+git clone --branch feature/focused-conversation-memory https://github.com/Shiye-10Pages/OPC-Companion.git
+cd OPC-Companion
+./scripts/install-local.sh
+```
+
+### After Public Release: Paste One Command
 
 Open Terminal, paste the full line below, and press Enter:
 
 ```bash
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Shiye-10Pages/OPC-Companion/feature/focused-conversation-memory/scripts/install.sh)"
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Shiye-10Pages/OPC-Companion/refs/heads/feature/focused-conversation-memory/scripts/install.sh)"
 ```
 
 The script downloads the source, builds the app, installs it at `~/Applications/OPCCompanion.app`, and launches it. If macOS asks you to install Xcode Command Line Tools, finish that installation and run the same command again.
@@ -96,10 +106,10 @@ You can also paste this request into your preferred AI coding assistant:
 
 ```text
 Please install OPC Companion on this Mac. Run the command below, explain any errors, and continue until the app launches:
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Shiye-10Pages/OPC-Companion/feature/focused-conversation-memory/scripts/install.sh)"
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Shiye-10Pages/OPC-Companion/refs/heads/feature/focused-conversation-memory/scripts/install.sh)"
 ```
 
-### Option 2: Download the ZIP
+### After Public Release: Download the ZIP
 
 1. Click [Download the OPC Companion source ZIP](https://github.com/Shiye-10Pages/OPC-Companion/archive/refs/heads/feature/focused-conversation-memory.zip).
 2. Double-click the ZIP file to extract it.

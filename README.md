@@ -81,12 +81,22 @@ OPC 伴侣把数据分成两条互不混淆的路径，使用前请知悉：
 
 目前**只有 macOS 版本**，要求 macOS 15 或更高版本。当前采用源码构建安装，暂未提供经过 Apple 公证的 DMG 安装包。
 
-### 方法一：复制一条命令
+> 当前 GitHub 仓库仍为私有状态。下面的公网一键安装和 ZIP 下载会在仓库公开后生效；在此之前，只有已获得仓库访问权限的开发者可以安装。
+
+### 当前私有仓库：已授权开发者安装
+
+```bash
+git clone --branch feature/focused-conversation-memory https://github.com/Shiye-10Pages/OPC-Companion.git
+cd OPC-Companion
+./scripts/install-local.sh
+```
+
+### 仓库公开后：复制一条命令
 
 打开「终端」，粘贴下面整行命令并回车：
 
 ```bash
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Shiye-10Pages/OPC-Companion/feature/focused-conversation-memory/scripts/install.sh)"
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Shiye-10Pages/OPC-Companion/refs/heads/feature/focused-conversation-memory/scripts/install.sh)"
 ```
 
 脚本会下载源码、编译、安装到 `~/Applications/OPCCompanion.app`，然后自动启动。如果系统弹出 Xcode Command Line Tools 安装窗口，先完成安装，再重新执行同一条命令。
@@ -95,10 +105,10 @@ OPC 伴侣把数据分成两条互不混淆的路径，使用前请知悉：
 
 ```text
 请帮我在这台 Mac 上安装 OPC 伴侣。执行下面的命令，遇到报错时解释原因并继续处理：
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Shiye-10Pages/OPC-Companion/feature/focused-conversation-memory/scripts/install.sh)"
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Shiye-10Pages/OPC-Companion/refs/heads/feature/focused-conversation-memory/scripts/install.sh)"
 ```
 
-### 方法二：下载 ZIP 后安装
+### 仓库公开后：下载 ZIP 安装
 
 1. 点击 [下载 OPC 伴侣源码 ZIP](https://github.com/Shiye-10Pages/OPC-Companion/archive/refs/heads/feature/focused-conversation-memory.zip)。
 2. 双击 ZIP 解压。
