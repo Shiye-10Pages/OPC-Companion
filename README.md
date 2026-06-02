@@ -126,6 +126,23 @@ swift build                 # 开发构建
 swift test                  # 跑单元测试
 ```
 
+## 也有 Claude Skill 版
+
+如果你常用 Claude（Claude Code / claude.ai / Claude Desktop），不必先装 app 也能尝到 OPC 的核心 —— 我们把最有代表性的「**斯多葛模式**」复刻成了一个 Claude Skill：**stoa-mirror**。当你焦虑、想法太多无从下手、自我否定、卡住、或想复盘时，它用斯多葛五模块（控制二分法 / 事实÷评判 / 灾难预演 / 顺势而为 / 美德复盘）把一团纠结坍缩成一个此刻可控的下一步 —— 不打鸡血、不空安慰，只做你的镜子。
+
+**安装（任选其一）：**
+
+```bash
+# Claude Code：把 skill 目录拷到用户级 skills 目录
+cp -R skills/stoa-mirror ~/.claude/skills/
+```
+
+claude.ai / Claude Desktop：把 `skills/stoa-mirror/` 压成 zip，在设置的 Skills 处上传。
+
+装好后，在对话里说一句「**我卡住了，没状态**」，它就会自动现身。更多说明见 [`skills/README.md`](skills/README.md)。
+
+> Skill 是产品的「魂」—— 斯多葛这套思考法，纯对话即可体验；但「壳」—— 全局热键随手记、菜单栏常驻、语音、计时、可填写可存档的原生卡片 —— 只有上面的 macOS app 给得了。Skill 是入口，app 是完整体验。
+
 ## 关于十页AI
 
 OPC 伴侣 由 **十页AI** 打造。
