@@ -22,6 +22,7 @@ struct SettingsView: View {
     @State private var notionCalendarId = ""
     @State private var notionTodosId = ""
     @State private var notionInboxId = ""
+    @State private var showClearChatConfirm = false
 
     private var availableVoices: [AVSpeechSynthesisVoice] {
         TTSService.availableVoices()
@@ -82,6 +83,39 @@ struct SettingsView: View {
                     }
                     .pickerStyle(.radioGroup)
                     .labelsHidden()
+                }
+
+                Divider()
+
+                // 对话
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("对话")
+                        .font(.headline)
+                    // 用应用内内联确认，不用系统 .alert：系统 alert 会让主面板失焦，
+                    // 触发 windowDidResignKey → hidePanel 把主面板关掉（看起来像"闪退"），
+                    // 且 alert 随面板消失，确认根本点不到。
+                    if showClearChatConfirm {
+                        HStack(spacing: 8) {
+                            Text("确认清空？")
+                                .font(.system(size: 13))
+                                .foregroundColor(.secondary)
+                            Button("清空", role: .destructive) {
+                                state.clearCurrentChat()
+                                showClearChatConfirm = false
+                            }
+                            Button("取消") { showClearChatConfirm = false }
+                        }
+                    } else {
+                        Button(role: .destructive) {
+                            showClearChatConfirm = true
+                        } label: {
+                            Label("清空当前聊天", systemImage: "trash")
+                        }
+                    }
+                    Text("清空当前聊天界面的对话内容；往期已归档记录不受影响，此操作不可撤销。")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
                 Divider()

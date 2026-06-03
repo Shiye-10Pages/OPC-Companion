@@ -22,7 +22,7 @@ public final class AppState: ObservableObject {
     // 随手记
     @Published public var notes: [Note] = []
 
-    // "我想"清扫会话：/聊聊 触发后激活，带 10 分钟时限和进入前的锚点任务
+    // 聊聊（清扫）会话：/聊聊 触发后激活，带 10 分钟时限和进入前的锚点任务
     @Published public var wishClearingSession: WishClearingSession?
     @Published public var wishClearingFocusNoteID: UUID?
     @Published public var wishClearingHandledNoteIds: Set<UUID> = []
@@ -652,10 +652,10 @@ public final class AppState: ObservableObject {
     }
 
     @discardableResult
-    public func captureNote(content: String, source: Note.Source, inputMode: InputMode = .text, kind: Note.Kind = .note) -> Bool {
+    public func captureNote(content: String, source: Note.Source, inputMode: InputMode = .text) -> Bool {
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
-        let note = Note(content: trimmed, source: source, inputMode: inputMode, kind: kind)
+        let note = Note(content: trimmed, source: source, inputMode: inputMode)
         guard InboxService.shared.append(note) else {
             showBanner("随手记保存失败，内容未保存，请重试（详见日志）", kind: .error, duration: 5.0)
             return false
@@ -775,10 +775,7 @@ public final class AppState: ObservableObject {
                 (note.status == .pending || note.status == .expired)
                     && !wishClearingHandledNoteIds.contains(note.id)
             }
-            .sorted { a, b in
-                if a.kind != b.kind { return a.kind == .wish }
-                return a.capturedAt > b.capturedAt
-            }
+            .sorted { $0.capturedAt > $1.capturedAt }
     }
 
     public var currentWishClearingNote: Note? {
@@ -796,7 +793,7 @@ public final class AppState: ObservableObject {
         }
 
         let cleanReason = reason.trimmingCharacters(in: .whitespacesAndNewlines)
-        let entry = "我想清扫 → \(decision.memoryLabel)：\(note.content)\(cleanReason.isEmpty ? "" : "（\(cleanReason)）")"
+        let entry = "聊聊 → \(decision.memoryLabel)：\(note.content)\(cleanReason.isEmpty ? "" : "（\(cleanReason)）")"
 
         switch decision {
         case .now:
@@ -1484,6 +1481,14 @@ public final class AppState: ObservableObject {
         }
     }
 
+    /// 清空当前聊天界面：清内存 messages + 重写今日对话文件为空。
+    /// 往期已归档的对话（SessionArchive）不受影响。
+    public func clearCurrentChat() {
+        messages.removeAll()
+        _ = rewriteTodayMessages()
+        showBanner("已清空当前聊天", kind: .success, duration: 2.0)
+    }
+
     @discardableResult
     private func rewriteTodayMessages() -> Bool {
         guard !Self.isRunningTests else { return true }
@@ -1582,13 +1587,13 @@ public final class AppState: ObservableObject {
 
     ## 上下文信号使用规则
     - **今日焦点任务（pinned tasks）**：判断"用户本来该做什么"的**唯一**依据。snapshot 里明细只列"还需行动"（▶ 进行中 / ○ 待办）；已完成任务单独汇总在"今日已完成 N 个"里，**不要基于已完成任务提醒用户去做**。若显示"今日任务全部完成"，则用户今天已达成目标，不要再催促。
-    - **项目库摘要**（若出现在上下文）：只用于识别"我想 X 是否和某个项目有关联"；**绝不**作为"回到哪"的依据，**绝不**指导项目内部 how-to
+    - **项目库摘要**（若出现在上下文）：只用于识别"某条随手记是否和某个项目有关联"；**绝不**作为"回到哪"的依据，**绝不**指导项目内部 how-to
     - **Notion 任务库**：不主动推；只有用户明确问"我之前记的 X"时才用 tool 查询
     - **历史记忆时效**：snapshot 只包含近 3 天 daily note 和最近一期周报。用户问"3 天前及更早"的任何事实（例："上周 / 上个月我做了 / 聊过什么"），**必须先调用 `memory_search` tool** 再回答，不许凭记忆断言"没记录"。
 
     ## /聊聊 触发协议
 
-    当用户消息以 `/聊聊` 开头（可能带参数如 `/聊聊 <note_id>` 或 `/聊聊 <关键词>`），进入 **Wish Clearing 模式**：
+    当用户消息以 `/聊聊` 开头（可能带参数如 `/聊聊 <note_id>` 或 `/聊聊 <关键词>`），进入 **聊聊模式**（限时清扫积压的随手记）：
 
     ### 1. 进入前埋锚（第一条回复）
     不要直接展开内容。先问锚点。如果上下文"当前状态"里已有"活跃计时"或"待办任务"，直接列出让用户确认：
@@ -1602,21 +1607,21 @@ public final class AppState: ObservableObject {
       > "记下了。回到 [锚点]。"
     - **(B) 卡住逃避**（语气："做不下去"、"头疼"、"先不想搞"、"先聊这个"）
       → 拒绝展开，指出真问题：
-      > "听起来是 [锚点] 卡住了，不要用我想的讨论逃开。先聊卡在哪。"
+      > "听起来是 [锚点] 卡住了，不要用聊别的来逃开。先聊卡在哪。"
     - **(C) 主动清扫**（语气："我有空了"、"帮我过一下"、"清一下积压"）
       → 进入限时展开，声明边界：
       > "好。聊 10 分钟，到点叫停。从最早那条开始。"
 
     ### 3. 展开过程约束（仅 C 路径）
-    - 每条 wish 只做四个判断之一：**现在做 / 推迟 / 彻底删 / 升级为任务**
+    - 每条随手记只做四个判断之一：**现在做 / 推迟 / 彻底删 / 升级为任务**
     - 不替用户做决定，用提问逼清楚：
       > "这件事现在做，会替换掉 pinned 里的哪一条？不替换就不该现在做。"
     - 只做时机和优先级判断，不指导项目内部 how-to
-    - **每条 wish 做出决策后必须立即调用 `log_wish_decision` tool**（decision 参数用中文：**立即做 / 升级为任务 / 先留着 / 删除**），否则这条 wish 白聊，明天十页打开 app 看不到任何痕迹
+    - **每条随手记做出决策后必须立即调用 `log_wish_decision` tool**（decision 参数用中文：**立即做 / 升级为任务 / 先留着 / 删除**），否则这条白聊，明天十页打开 app 看不到任何痕迹
 
     ### 4. 退出姿态
     任一条件触发，主动结束：
-    - 上下文里 Wish Clearing 的"剩余"接近 0 或显示"时间到"
+    - 上下文里聊聊会话的"剩余"接近 0 或显示"时间到"
     - 用户说"先到这"、"回去了"、"回工作"
     - 连续 3 轮没有决策产出（空转）
 
@@ -1625,11 +1630,11 @@ public final class AppState: ObservableObject {
        > "聊了 X 分钟。回到 [锚点]，接着你刚才的位置继续。"
        如果锚点字段为空，就说 "回去做你本来的事。"
        **禁止**编造"你刚才停在第二步"、"停在写周报的开头" 这类细节 —— 你没有这些信息。
-    2. **紧接着调用 `end_wish_clearing` tool** 结束 session。这一步**必做**，否则下一次普通对话会被 wish 上下文污染。
+    2. **紧接着调用 `end_wish_clearing` tool** 结束 session。这一步**必做**，否则下一次普通对话会被聊聊上下文污染。
 
     ## 行为禁区
-    - 默认对话（非 /聊聊 语境）**不要主动翻 wish 池**，不要推荐"要不要聊聊积压"
-    - **不要 AI 自行发起 wish clearing** —— 必须等用户用 `/聊聊` 触发
+    - 默认对话（非 /聊聊 语境）**不要主动翻积压随手记**，不要推荐"要不要聊聊积压"
+    - **不要 AI 自行发起聊聊清扫** —— 必须等用户用 `/聊聊` 触发
     - 项目库 / Notion 任务库的数据**不参与**"你该回到哪"的决策
     """
 

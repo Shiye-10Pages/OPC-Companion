@@ -209,7 +209,7 @@ public enum ToolExecutor {
             "type": "function",
             "function": [
                 "name": "end_wish_clearing",
-                "description": "结束当前的 /聊聊 Wish Clearing 会话。在用户说'先到这'/'回去了'/'回工作'或你完成状态回放后必须调用。未调用会导致后续普通对话被 wish 上下文污染。",
+                "description": "结束当前的 /聊聊（清扫）会话。在用户说'先到这'/'回去了'/'回工作'或你完成状态回放后必须调用。未调用会导致后续普通对话被聊聊上下文污染。",
                 "parameters": ["type": "object", "properties": [:]]
             ]
         ],
@@ -217,18 +217,18 @@ public enum ToolExecutor {
             "type": "function",
             "function": [
                 "name": "log_wish_decision",
-                "description": "在 /聊聊 Wish Clearing 模式里，**每当你和用户对一条 wish 做出决策后必须调用**。记录到今日 daily note 并执行副作用：升级为任务/立即做 会把 wish 升级成今日 pinned；删除 会直接删除；先留着 只留痕不改变数据。",
+                "description": "在 /聊聊（清扫）模式里，**每当你和用户对一条随手记做出决策后必须调用**。记录到今日 daily note 并执行副作用：升级为任务/立即做 会把这条随手记升级成今日 pinned；删除 会直接删除；先留着 只留痕不改变数据。",
                 "parameters": [
                     "type": "object",
                     "properties": [
                         "wish_content": [
                             "type": "string",
-                            "description": "该条 wish 的完整原文或前 20 字（用于匹配本地 note）"
+                            "description": "该条随手记的完整原文或前 20 字（用于匹配本地 note）"
                         ],
                         "decision": [
                             "type": "string",
                             "enum": ["立即做", "升级为任务", "先留着", "删除"],
-                            "description": "立即做 / 升级为任务 = 把 wish 加进今日 pinned（不自动起计时，让用户手动开始）；先留着 = 保留 wish，只把讨论结果写入 daily note；删除 = 彻底删除这条 wish"
+                            "description": "立即做 / 升级为任务 = 把这条随手记加进今日 pinned（不自动起计时，让用户手动开始）；先留着 = 保留这条随手记，只把讨论结果写入 daily note；删除 = 彻底删除这条随手记"
                         ],
                         "reason": [
                             "type": "string",
@@ -378,11 +378,11 @@ public enum ToolExecutor {
     @MainActor
     private static func executeLogWishDecision(content: String, decision: String, reason: String, state: AppState) -> String {
         // 本地 wish 匹配：先找 content 完全相等的，再退化到前缀匹配
-        let matchingNote = state.notes.first(where: { n in n.kind == .wish && n.content == content })
-            ?? state.notes.first(where: { n in n.kind == .wish && n.content.hasPrefix(content) })
+        let matchingNote = state.notes.first(where: { n in n.content == content })
+            ?? state.notes.first(where: { n in n.content.hasPrefix(content) })
 
         // daily note 条目用中文术语
-        let entry = "我想清扫 → \(decision)：\(content)\(reason.isEmpty ? "" : "（\(reason)）")"
+        let entry = "聊聊 → \(decision)：\(content)\(reason.isEmpty ? "" : "（\(reason)）")"
 
         var effect = "已记录"
         // 兼容中英文术语（enum 已改中文，但保留英文别名以防 AI 带习惯）

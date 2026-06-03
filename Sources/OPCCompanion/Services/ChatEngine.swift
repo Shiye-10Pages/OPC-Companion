@@ -361,15 +361,10 @@ public final class ChatEngine: @unchecked Sendable {
             lines.append("- 今日焦点 (pinned)：今日任务全部完成，无需再提醒去做")
         }
 
-        // 未处理随手记（按 kind 拆分：note / wish）
-        let pendingNotes = state.notes.filter { $0.status == .pending }
-        let pendingNoteCount = pendingNotes.filter { $0.kind == .note }.count
-        let pendingWishCount = pendingNotes.filter { $0.kind == .wish }.count
-        if pendingNoteCount > 0 || pendingWishCount > 0 {
-            var parts: [String] = []
-            if pendingNoteCount > 0 { parts.append("\(pendingNoteCount) 条随手记") }
-            if pendingWishCount > 0 { parts.append("\(pendingWishCount) 条我想") }
-            lines.append("- 未处理收件箱: \(parts.joined(separator: " + "))")
+        // 未处理随手记
+        let pendingNoteCount = state.notes.filter { $0.status == .pending }.count
+        if pendingNoteCount > 0 {
+            lines.append("- 未处理收件箱: \(pendingNoteCount) 条随手记")
         }
 
         // 定时任务
@@ -379,11 +374,11 @@ public final class ChatEngine: @unchecked Sendable {
             lines.append("- 定时提醒(\(enabledTimers.count)): \(names)")
         }
 
-        // Wish Clearing 会话状态
+        // 聊聊（清扫）会话状态
         if let session = state.wishClearingSession {
             let elapsedMin = session.elapsedSeconds / 60
             let remainingMin = session.remainingSeconds / 60
-            var sessionLine = "- Wish Clearing 进行中: 已过 \(elapsedMin) 分钟，剩余 \(remainingMin) 分钟，已处理 \(session.processedCount) 条"
+            var sessionLine = "- 聊聊（清扫）进行中: 已过 \(elapsedMin) 分钟，剩余 \(remainingMin) 分钟，已处理 \(session.processedCount) 条"
             if session.expired {
                 sessionLine += "（⚠️ 时间已到，请按协议结束并做状态回放）"
             }

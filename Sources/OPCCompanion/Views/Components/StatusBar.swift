@@ -78,6 +78,20 @@ struct StatusBar: View {
             Text(formatRemaining(remaining))
                 .font(.system(size: 11, weight: .medium, design: .monospaced))
                 .foregroundStyle(remaining < 300 ? AppColors.statusError : .secondary)
+            Button { state.completeCurrentTimer() } label: {
+                Image(systemName: "checkmark.circle")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("完成")
+            Button { state.extendCurrentTimer(by: 10) } label: {
+                Image(systemName: "plus.circle")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("延长 10 分")
         }
     }
 
@@ -86,12 +100,12 @@ struct StatusBar: View {
         let remainingMin = session.remainingSeconds / 60
         Button {
             state.endWishClearingSession()
-            state.showBanner("已结束我想清扫", kind: .success, duration: 2.0)
+            state.showBanner("已结束聊聊", kind: .success, duration: 2.0)
         } label: {
             HStack(spacing: 3) {
                 Image(systemName: "sparkles")
                     .font(.system(size: 10))
-                Text("我想清扫 · 剩 \(remainingMin) 分")
+                Text("聊聊 · 剩 \(remainingMin) 分")
                     .font(.system(size: 11, weight: .medium))
                 Image(systemName: "xmark.circle.fill")
                     .font(.system(size: 10))
@@ -105,7 +119,7 @@ struct StatusBar: View {
             )
         }
         .buttonStyle(.plain)
-        .help("点击结束我想清扫")
+        .help("点击结束聊聊")
     }
 
     private func formatRemaining(_ seconds: Int) -> String {

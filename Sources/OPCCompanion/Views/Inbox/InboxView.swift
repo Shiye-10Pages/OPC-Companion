@@ -293,21 +293,6 @@ struct NoteCard: View {
 
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .top, spacing: 6) {
-                    if note.kind == .wish {
-                        HStack(spacing: 3) {
-                            Image(systemName: "sparkles")
-                                .font(.system(size: 10, weight: .semibold))
-                            Text("我想")
-                                .font(.system(size: 10, weight: .semibold))
-                        }
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(
-                            Capsule()
-                                .fill(Color.purple.opacity(0.15))
-                        )
-                        .foregroundColor(.purple)
-                    }
                     Text(note.content)
                         .font(.system(size: 13))
                         .strikethrough(note.status == .done || note.status == .expired)
@@ -346,7 +331,7 @@ struct NoteCard: View {
         switch note.status {
         case .pending:
             HStack(spacing: 2) {
-                HoverIconButton(systemImage: "bubble.left.and.text.bubble.right", help: "聊聊这条（进入我想清扫）") { chatAboutNote() }
+                HoverIconButton(systemImage: "bubble.left.and.text.bubble.right", help: "聊聊这条") { chatAboutNote() }
                 HoverIconButton(systemImage: "checkmark.circle", help: "标记完成") { state.markNoteDone(note) }
                 HoverIconButton(systemImage: "arrow.right.circle", help: "转任务") { state.convertNoteToTask(note) }
                 HoverIconButton(label: "Notion", help: "推送到 Notion") { pushNotion() }
@@ -354,7 +339,7 @@ struct NoteCard: View {
             }
         case .expired:
             HStack(spacing: 2) {
-                HoverIconButton(systemImage: "bubble.left.and.text.bubble.right", help: "聊聊这条（进入我想清扫）") { chatAboutNote() }
+                HoverIconButton(systemImage: "bubble.left.and.text.bubble.right", help: "聊聊这条") { chatAboutNote() }
                 HoverIconButton(systemImage: "arrow.right.circle", help: "转任务") { state.convertNoteToTask(note) }
                 HoverIconButton(systemImage: "trash", help: "删除") { state.deleteNote(note) }
             }

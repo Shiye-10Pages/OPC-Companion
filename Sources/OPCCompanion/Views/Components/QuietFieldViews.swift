@@ -37,45 +37,6 @@ struct QuietMomentDashboard: View {
                     QuietMetric(label: "浮念", value: "\(pendingThoughts.count) 条")
                     QuietMetric(label: "任务", value: "\(pendingTasks.count) 待定")
                 }
-
-                HStack(spacing: 8) {
-                    if let active = activeTask {
-                        QuietActionButton(title: "完成", icon: "checkmark.circle") {
-                            state.completeCurrentTimer()
-                        }
-                        QuietActionButton(title: "延长 10 分", icon: "plus.circle") {
-                            state.extendCurrentTimer(by: 10)
-                        }
-                        Text(active.title)
-                            .font(.system(size: 11))
-                            .foregroundStyle(theme.textTertiary)
-                            .lineLimit(1)
-                    } else if let next = pendingTasks.first {
-                        QuietActionButton(title: "开始 25 分钟", icon: "play.circle") {
-                            state.startTimer(task: next.title, minutes: 25)
-                        }
-                    } else {
-                        QuietActionButton(title: "今天先定 3 件事", icon: "sunrise") {
-                            state.showMorningRitual = true
-                        }
-                    }
-
-                    Spacer(minLength: 8)
-
-                    QuietActionButton(title: "记一下", icon: "square.and.pencil") {
-                        AppDelegate.shared?.showQuickCapture()
-                    }
-                    QuietActionButton(title: "整理浮念", icon: "tray") {
-                        withAnimation(AppAnimations.smooth) {
-                            state.selectedTab = .inbox
-                        }
-                    }
-                    QuietActionButton(title: "聊聊", icon: "sparkles") {
-                        let anchor = state.activeTask?.title ?? pendingTasks.first?.title
-                        state.startWishClearingSession(anchorTask: anchor)
-                        state.showBanner("已进入我想清扫", kind: .info, duration: 2.0)
-                    }
-                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
@@ -152,41 +113,12 @@ private struct QuietMetric: View {
     }
 }
 
-private struct QuietActionButton: View {
-    let title: String
-    let icon: String
-    let action: () -> Void
-    @Environment(\.theme) private var theme
-    @State private var hovering = false
-
-    var body: some View {
-        Button(action: action) {
-            Label(title, systemImage: icon)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(hovering ? theme.textPrimary : theme.textSecondary)
-                .padding(.horizontal, 9)
-                .padding(.vertical, 5)
-                .background(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(hovering ? theme.textTertiary.opacity(0.14) : Color.clear)
-                )
-                .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
-    }
-}
-
 struct FloatingThoughtsScene: View {
     @EnvironmentObject var state: AppState
     @Environment(\.theme) private var theme
 
     private var pendingCount: Int {
         state.notes.filter { $0.status == .pending || $0.status == .expired }.count
-    }
-
-    private var wishCount: Int {
-        state.notes.filter { ($0.status == .pending || $0.status == .expired) && $0.kind == .wish }.count
     }
 
     var body: some View {
@@ -200,7 +132,7 @@ struct FloatingThoughtsScene: View {
                     QuietHeaderButton(title: "新记", icon: "square.and.pencil") {
                         AppDelegate.shared?.showQuickCapture()
                     }
-                    QuietHeaderButton(title: wishCount > 0 ? "清扫 \(wishCount)" : "清扫", icon: "sparkles") {
+                    QuietHeaderButton(title: pendingCount > 0 ? "清扫 \(pendingCount)" : "清扫", icon: "sparkles") {
                         let anchor = state.activeTask?.title ?? state.tasks.first(where: { $0.status == .pending })?.title
                         state.startWishClearingSession(anchorTask: anchor)
                         state.wishClearingFocusNoteID = state.wishClearingCandidates.first?.id
@@ -255,7 +187,7 @@ struct QuietWishClearingDesk: View {
     private var header: some View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 3) {
-                Text("我想清扫")
+                Text("聊聊")
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(theme.textPrimary)
                 Text(sessionSubtitle)
@@ -265,7 +197,7 @@ struct QuietWishClearingDesk: View {
             Spacer()
             Button {
                 state.endWishClearingSession()
-                state.showBanner("已结束我想清扫", kind: .success, duration: 2.0)
+                state.showBanner("已结束聊聊", kind: .success, duration: 2.0)
             } label: {
                 Label("结束", systemImage: "xmark.circle")
                     .font(.system(size: 12, weight: .medium))
@@ -287,9 +219,9 @@ struct QuietWishClearingDesk: View {
     private func wishCard(_ note: Note) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
-                Label(note.kind == .wish ? "我想" : "浮念", systemImage: note.kind == .wish ? "sparkles" : "tray")
+                Label("浮念", systemImage: "tray")
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(note.kind == .wish ? theme.accent : theme.gold)
+                    .foregroundStyle(theme.gold)
                 Spacer()
                 Text(formatTime(note.capturedAt))
                     .font(fontStyle.timestampFont)

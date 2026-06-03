@@ -2,21 +2,20 @@ import SwiftUI
 
 struct QuickCaptureView: View {
     let autoStartVoice: Bool
-    let onSubmit: (String, InputMode, Note.Kind) -> Bool
+    let onSubmit: (String, InputMode) -> Bool
     let onCancel: () -> Void
 
     @State private var text = ""
     @State private var voiceMode = false
     @State private var pulse = false
-    @State private var isWish = false
     @FocusState private var isFocused: Bool
     @ObservedObject private var voice = VoiceService.shared
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: voiceMode ? "mic.fill" : (isWish ? "sparkles" : "tray.and.arrow.down"))
+            Image(systemName: voiceMode ? "mic.fill" : "tray.and.arrow.down")
                 .font(.system(size: 16))
-                .foregroundColor(voiceMode ? .red : (isWish ? .purple : .secondary))
+                .foregroundColor(voiceMode ? .red : .secondary)
                 .scaleEffect(voiceMode && pulse ? 1.15 : 1.0)
                 .animation(
                     voiceMode ? .easeInOut(duration: 0.6).repeatForever(autoreverses: true) : .default,
@@ -28,20 +27,6 @@ struct QuickCaptureView: View {
                 .font(.system(size: 15))
                 .focused($isFocused)
                 .onSubmit { submit() }
-
-            Button { isWish.toggle() } label: {
-                Text(isWish ? "我想" : "随手记")
-                    .font(.system(size: 11, weight: .medium))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(
-                        Capsule()
-                            .fill(isWish ? Color.purple.opacity(0.2) : Color.secondary.opacity(0.12))
-                    )
-                    .foregroundColor(isWish ? .purple : .secondary)
-            }
-            .buttonStyle(.plain)
-            .help(isWish ? "切回随手记（碎片/备忘）" : "切到「我想」（远期愿望池，不打扰眼前）")
 
             Button { submit() } label: {
                 let isEmpty = text.trimmingCharacters(in: .whitespaces).isEmpty
@@ -120,16 +105,15 @@ struct QuickCaptureView: View {
 
     private var placeholderText: String {
         if voiceMode { return "正在听你说..." }
-        return isWish ? "想做点什么（但还没时候做）..." : "记一下想法..."
+        return "记一下想法..."
     }
 
     private func submit() {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         let mode: InputMode = voiceMode ? .voice : .text
-        let kind: Note.Kind = isWish ? .wish : .note
         stopVoiceIfNeeded()
-        if onSubmit(trimmed, mode, kind) {
+        if onSubmit(trimmed, mode) {
             text = ""
         }
     }

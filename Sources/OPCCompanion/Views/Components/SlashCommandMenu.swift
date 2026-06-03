@@ -13,7 +13,7 @@ struct SlashCommand: Identifiable {
 
     @MainActor static let all: [SlashCommand] = [
         SlashCommand(id: "note", icon: "tray.and.arrow.down", label: "随手记", description: "/ 后跟内容直接存入收件箱", replacement: "/ ") { _ in false },
-        SlashCommand(id: "chat", icon: "bubble.left.and.text.bubble.right", label: "聊聊", description: "进入我想清扫模式（限时 10 分钟）", replacement: "/聊聊 ") { _ in false },
+        SlashCommand(id: "chat", icon: "bubble.left.and.text.bubble.right", label: "聊聊", description: "清扫积压随手记（限时 10 分钟）", replacement: "/聊聊 ") { _ in false },
         SlashCommand(id: "ritual", icon: "sunrise.fill", label: "今日必做", description: "锁定今天要完成的 3 件事", replacement: nil) { state in
             state.showMorningRitual = true; return true
         },

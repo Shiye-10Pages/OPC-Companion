@@ -86,6 +86,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var quickCapturePanel: NSPanel?
     /// Quiet Field 新前门预览面板（v2 原型，独立于主面板与 Quick Capture，零侵入）
     var quietFieldPreviewPanel: NSPanel?
+    /// 方案 B 展开过渡中：抑制折叠 bar 的 resignKey 自动关闭，让淡出动画收尾
+    /// （否则主面板抢 key → bar resignKey → orderOut 立即截断 A 过渡的淡出）。
+    private var isExpandingToMain = false
     var statusItem: NSStatusItem?
     var popover: NSPopover?
 
@@ -540,6 +543,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // 入口模式分流：classic = 旧三胶囊主面板；quietField（默认）= 新前门。即时生效，无需重注册。
         if state.config.entryMode == "classic" {
             togglePanel()
+        } else if panel?.isVisible == true {
+            // quietField 已展开成主面板（方案 B）→ 再按热键收起主面板
+            hidePanel()
         } else {
             toggleQuietFieldPreview()
         }
@@ -915,9 +921,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         let view = QuickCaptureView(
             autoStartVoice: false,
-            onSubmit: { [weak self] text, inputMode, kind in
+            onSubmit: { [weak self] text, inputMode in
                 let source: Note.Source = (inputMode == .voice) ? .hotkeyVoice : .hotkeyText
-                let saved = AppState.shared.captureNote(content: text, source: source, inputMode: inputMode, kind: kind)
+                let saved = AppState.shared.captureNote(content: text, source: source, inputMode: inputMode)
                 if saved {
                     self?.hideQuickCapture()
                 }
@@ -953,7 +959,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if let screen = targetScreen {
             let visible = screen.visibleFrame
             let x = visible.origin.x + (visible.width - p.frame.width) / 2
-            let y = visible.origin.y + visible.height - p.frame.height - 56
+            // 折叠 bar 顶沿对齐主面板居中后的顶沿（方案 B 过渡：展开像从 bar 处长出，不跳位）
+            let mainPanelHeight = panel?.frame.height ?? 620
+            let y = visible.origin.y + (visible.height + mainPanelHeight) / 2 - p.frame.height + 16
             p.setFrameOrigin(NSPoint(x: x, y: y))
         }
         NSApplication.shared.activate(ignoringOtherApps: true)
@@ -978,6 +986,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             hideQuietFieldPreview()
         } else {
             showQuietFieldPreview()
+        }
+    }
+
+    /// Quiet Field 收敛方案 B：折叠 bar 的「展开 / 聊聊」切到 classic 完整主面板（形态切换，非卷帘）。
+    /// 清扫态由 wishClearingSession 驱动，主面板 momentStack 会自动显示清扫桌。
+    func expandToMainPanel() {
+        state.selectedTab = .chat   // 展开默认落在「此刻」
+        isExpandingToMain = true    // 抑制 bar 的 resignKey 自动关闭，让淡出动画跑完
+        showPanel()                 // 主面板在 bar 上沿位置淡入
+        // 折叠 bar 同步淡出，与主面板淡入交叉 → 位置对齐使视觉上像从 bar 处展开
+        if let bar = quietFieldPreviewPanel, bar.isVisible {
+            NSAnimationContext.runAnimationGroup({ ctx in
+                ctx.duration = 0.16
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                bar.animator().alphaValue = 0.0
+            }, completionHandler: {
+                DispatchQueue.main.async {
+                    bar.orderOut(nil)
+                    bar.alphaValue = 1.0
+                    self.isExpandingToMain = false
+                }
+            })
+        } else {
+            isExpandingToMain = false
         }
     }
 
@@ -1045,6 +1077,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             dlog("[EVENT] QuickCapture resigned key - closing")
             hideQuickCapture()
         } else if closed === quietFieldPreviewPanel {
+            // 展开过渡中：bar 由 expandToMainPanel 的淡出动画收尾，不在此处抢先 orderOut（否则截断 A 过渡）
+            if isExpandingToMain { return }
             dlog("[EVENT] Quiet Field preview resigned key - closing")
             hideQuietFieldPreview()
         }
