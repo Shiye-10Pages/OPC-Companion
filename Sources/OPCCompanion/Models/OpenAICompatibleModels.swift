@@ -41,11 +41,18 @@ public struct WireFunctionCall: Codable, Sendable {
 /// 一次流式响应 chunk（完整解析完成后）
 public struct StreamChunk: Sendable {
     public var contentDelta: String?
+    public var reasoningDelta: String?
     public var toolCallDeltas: [ToolCallDelta]
     public var finishReason: String?
 
-    public init(contentDelta: String? = nil, toolCallDeltas: [ToolCallDelta] = [], finishReason: String? = nil) {
+    public init(
+        contentDelta: String? = nil,
+        reasoningDelta: String? = nil,
+        toolCallDeltas: [ToolCallDelta] = [],
+        finishReason: String? = nil
+    ) {
         self.contentDelta = contentDelta
+        self.reasoningDelta = reasoningDelta
         self.toolCallDeltas = toolCallDeltas
         self.finishReason = finishReason
     }

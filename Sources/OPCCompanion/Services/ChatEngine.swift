@@ -252,6 +252,7 @@ public final class ChatEngine: @unchecked Sendable {
     ) async throws -> (content: String, toolCalls: [WireToolCall], finishReason: String?) {
         let stream = client.chatStream(messages: wire, tools: ToolExecutor.availableTools)
         var content = ""
+        var reasoning = ""
         let buffer = ToolCallBuffer()
         var finishReason: String?
 
@@ -260,13 +261,24 @@ public final class ChatEngine: @unchecked Sendable {
                 content += delta
                 onAssistantDelta(delta)
             }
+            if let r = chunk.reasoningDelta, !r.isEmpty {
+                reasoning += r
+            }
             for d in chunk.toolCallDeltas {
                 buffer.apply(delta: d)
             }
             if let reason = chunk.finishReason { finishReason = reason }
         }
 
-        return (content, buffer.finalized(), finishReason)
+        // 推理模型兜底：正文为空但有思考内容时，用思考内容代替
+        let effective = content.isEmpty && !reasoning.isEmpty ? reasoning : content
+        let finalizedTools = buffer.finalized()
+        // 流"正常"结束却 正文/思考/工具/finishReason 全空 → 多半是未被识别的服务端错误（如过载），
+        // 明确报错而非当成正常完成（否则上层只会看到笼统的"无法获取有效响应"）
+        if effective.isEmpty && finalizedTools.isEmpty && finishReason == nil {
+            throw OpenAICompatibleClient.ClientError.emptyResponse
+        }
+        return (effective, finalizedTools, finishReason)
     }
 
     @MainActor

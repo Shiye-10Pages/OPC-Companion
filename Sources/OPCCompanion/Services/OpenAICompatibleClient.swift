@@ -204,23 +204,45 @@ public final class OpenAICompatibleClient: @unchecked Sendable {
     static func parseSSELine(_ line: String) throws -> StreamChunk? {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return nil }
-        guard trimmed.hasPrefix("data:") else { return nil }
         if isDoneMarker(trimmed) { return nil }
 
-        let jsonPart = trimmed
-            .dropFirst("data:".count)
-            .trimmingCharacters(in: .whitespaces)
-        guard let data = jsonPart.data(using: .utf8) else { return nil }
-
-        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let choices = object["choices"] as? [[String: Any]],
-              let firstChoice = choices.first else {
+        // 取 JSON：标准 SSE 是 "data: {...}"；部分服务端的错误信封是不带 data: 前缀的裸 JSON
+        let jsonPart: String
+        if trimmed.hasPrefix("data:") {
+            jsonPart = String(trimmed.dropFirst("data:".count)).trimmingCharacters(in: .whitespaces)
+        } else if trimmed.hasPrefix("{") {
+            jsonPart = trimmed
+        } else {
+            return nil
+        }
+        guard let data = jsonPart.data(using: .utf8),
+              let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
             return nil
         }
 
-        let delta = firstChoice["delta"] as? [String: Any] ?? [:]
+        // 识别流内错误信封：否则会被当"无 choices"静默丢弃，最终伪装成空响应误导用户
+        // 形如 {"type":"error","error":{"type":"overloaded_error","http_code":"529"}}
+        if (object["type"] as? String) == "error" {
+            let err = object["error"] as? [String: Any]
+            let etype = (err?["type"] as? String) ?? "error"
+            let code = Int((err?["http_code"] as? String) ?? "") ?? 529
+            throw ClientError.server(status: code, message: etype == "overloaded_error" ? "服务端过载，请稍后重试" : etype)
+        }
+        // 形如 {"base_resp":{"status_code":1004,"status_msg":"..."}}（MiniMax 业务错误，常以 HTTP 200 返回）
+        if let base = object["base_resp"] as? [String: Any],
+           let code = base["status_code"] as? Int, code != 0 {
+            if code == 1004 || code == 1039 { throw ClientError.unauthorized }
+            throw ClientError.server(status: code, message: (base["status_msg"] as? String) ?? "未知错误")
+        }
+
+        let choices = object["choices"] as? [[String: Any]] ?? []
+        let firstChoice = choices.first
+
+        let delta = firstChoice?["delta"] as? [String: Any] ?? [:]
         let contentDelta = delta["content"] as? String
-        let finishReason = firstChoice["finish_reason"] as? String
+        // 推理模型（MiniMax M2 等）把思考放在 reasoning_content、正文在 content；漏接会导致正文为空时整条空响应
+        let reasoningDelta = delta["reasoning_content"] as? String
+        let finishReason = firstChoice?["finish_reason"] as? String
 
         var toolCallDeltas: [ToolCallDelta] = []
         if let toolCallsRaw = delta["tool_calls"] as? [[String: Any]] {
@@ -239,12 +261,13 @@ public final class OpenAICompatibleClient: @unchecked Sendable {
             }
         }
 
-        if contentDelta == nil && toolCallDeltas.isEmpty && finishReason == nil {
+        if contentDelta == nil && reasoningDelta == nil && toolCallDeltas.isEmpty && finishReason == nil {
             return nil
         }
 
         return StreamChunk(
             contentDelta: contentDelta,
+            reasoningDelta: reasoningDelta,
             toolCallDeltas: toolCallDeltas,
             finishReason: finishReason
         )
