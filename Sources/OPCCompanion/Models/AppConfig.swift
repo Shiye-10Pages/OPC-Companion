@@ -76,6 +76,12 @@ public struct APIConfig: Codable, Sendable {
     public static let anthropicDefaultModel = "claude-sonnet-4-6"
     public static let siliconFlowBaseURL = "https://api.siliconflow.cn/v1"
     public static let siliconFlowDefaultModel = "deepseek-ai/DeepSeek-V3.2"
+    // MiniMax 国内版：与海外同模型/同端点路径，但 host 与 key 必须区域匹配，不可混用
+    public static let miniMaxCNBaseURL = "https://api.minimaxi.com/v1"
+    public static let glmBaseURL = "https://open.bigmodel.cn/api/paas/v4"
+    public static let glmDefaultModel = "glm-4.6"
+    public static let kimiBaseURL = "https://api.moonshot.cn/v1"
+    public static let kimiDefaultModel = "kimi-latest"
 
     public var provider: String
     public var apiKey: String
@@ -133,15 +139,23 @@ public struct APIConfig: Codable, Sendable {
         if base.hasSuffix("/chat/completions") || base.hasSuffix("/text/chatcompletion_v2") {
             return URL(string: base)
         }
-        let path = provider == "minimax" ? "text/chatcompletion_v2" : "chat/completions"
+        let path = Self.usesMiniMaxPath(provider) ? "text/chatcompletion_v2" : "chat/completions"
         return URL(string: "\(base)/\(path)")
+    }
+
+    /// MiniMax 系（海外 / 国内）用 text/chatcompletion_v2 端点；其余 OpenAI 兼容厂商用 chat/completions。
+    static func usesMiniMaxPath(_ provider: String) -> Bool {
+        provider == "minimax" || provider == "minimax-cn"
     }
 
     public static func defaultBaseURL(for provider: String) -> String {
         switch provider {
         case "minimax": return miniMaxInternationalBaseURL
+        case "minimax-cn": return miniMaxCNBaseURL
         case "deepseek": return deepSeekBaseURL
         case "qwen": return qwenBaseURL
+        case "glm": return glmBaseURL
+        case "kimi": return kimiBaseURL
         case "openai": return openAIBaseURL
         case "anthropic": return anthropicBaseURL
         case "siliconflow": return siliconFlowBaseURL
@@ -152,8 +166,11 @@ public struct APIConfig: Codable, Sendable {
     public static func defaultModel(for provider: String) -> String {
         switch provider {
         case "minimax": return miniMaxDefaultModel
+        case "minimax-cn": return miniMaxDefaultModel
         case "deepseek": return deepSeekDefaultModel
         case "qwen": return qwenDefaultModel
+        case "glm": return glmDefaultModel
+        case "kimi": return kimiDefaultModel
         case "openai": return openAIDefaultModel
         case "anthropic": return anthropicDefaultModel
         case "siliconflow": return siliconFlowDefaultModel
@@ -163,9 +180,12 @@ public struct APIConfig: Codable, Sendable {
 
     public static func displayName(for provider: String) -> String {
         switch provider {
-        case "minimax": return "MiniMax"
+        case "minimax": return "MiniMax (海外版)"
+        case "minimax-cn": return "MiniMax (国内版)"
         case "deepseek": return "DeepSeek"
         case "qwen": return "通义千问"
+        case "glm": return "智谱 GLM"
+        case "kimi": return "Kimi (Moonshot)"
         case "openai": return "OpenAI"
         case "anthropic": return "Anthropic"
         case "siliconflow": return "SiliconFlow"
