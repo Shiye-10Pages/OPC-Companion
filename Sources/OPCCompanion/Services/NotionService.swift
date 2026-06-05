@@ -8,6 +8,8 @@ public final class NotionService: @unchecked Sendable {
     public static let apiVersion = "2022-06-28"
 
     private let session: URLSession
+    private let schemaLock = NSLock()
+    private var schemaCache: [String: NotionDatabaseSchema] = [:]
 
     public init(session: URLSession = .shared) {
         self.session = session
@@ -88,6 +90,55 @@ public final class NotionService: @unchecked Sendable {
         return data
     }
 
+    // MARK: - 数据库 Schema（用于写入前校正列名）
+
+    /// 拉取数据库字段 schema（`GET /databases/{id}`），按 id 缓存。
+    public func databaseSchema(databaseId: String, forceRefresh: Bool = false) async throws -> NotionDatabaseSchema {
+        if !forceRefresh, let cached = cachedSchema(databaseId) { return cached }
+        let request = try makeRequest(path: "/databases/\(databaseId)", method: "GET")
+        let (data, response) = try await session.data(for: request)
+        try Self.ensureSuccess(data: data, response: response)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw NotionError.invalidResponse
+        }
+        let schema = try Self.parseSchema(json)
+        storeSchema(schema, for: databaseId)
+        return schema
+    }
+
+    // 同步小封装：async 上下文不能直接持 NSLock，临界区里也无 await
+    private func cachedSchema(_ id: String) -> NotionDatabaseSchema? {
+        schemaLock.lock(); defer { schemaLock.unlock() }
+        return schemaCache[id]
+    }
+
+    private func storeSchema(_ schema: NotionDatabaseSchema, for id: String) {
+        schemaLock.lock(); defer { schemaLock.unlock() }
+        schemaCache[id] = schema
+    }
+
+    /// 便捷：返回真实标题列名；失败时回退 "Name"（英文库默认标题列名）。
+    public func titlePropertyName(databaseId: String) async -> String {
+        (try? await databaseSchema(databaseId: databaseId))?.titlePropertyName ?? "Name"
+    }
+
+    /// 从 `GET /databases/{id}` 的 JSON 里解析出标题列名与全部列名。提取成静态便于单测。
+    static func parseSchema(_ json: [String: Any]) throws -> NotionDatabaseSchema {
+        guard let props = json["properties"] as? [String: Any] else {
+            throw NotionError.invalidResponse
+        }
+        var titleName: String?
+        var names: Set<String> = []
+        for (name, val) in props {
+            names.insert(name)
+            if let v = val as? [String: Any], (v["type"] as? String) == "title" {
+                titleName = name
+            }
+        }
+        guard let title = titleName else { throw NotionError.invalidResponse }
+        return NotionDatabaseSchema(titlePropertyName: title, propertyNames: names)
+    }
+
     // MARK: - 构造请求
 
     static func makeRequest(
@@ -153,6 +204,17 @@ public struct NotionDatabase: Identifiable, Sendable, Hashable {
     public init(id: String, title: String) {
         self.id = id
         self.title = title
+    }
+}
+
+/// 数据库字段 schema（当前只取写入需要的：真实标题列名 + 全部列名）。
+public struct NotionDatabaseSchema: Sendable, Equatable {
+    public let titlePropertyName: String
+    public let propertyNames: Set<String>
+
+    public init(titlePropertyName: String, propertyNames: Set<String>) {
+        self.titlePropertyName = titlePropertyName
+        self.propertyNames = propertyNames
     }
 }
 

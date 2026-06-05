@@ -963,8 +963,10 @@ public final class AppState: ObservableObject {
             showBanner("Notion 推送失败：未绑定收件箱数据库", kind: .error, duration: 5.0)
             return false
         }
+        // 用数据库真实标题列名（中文库常是"名称"，写死 "Name" 会 400）
+        let titleProp = await NotionService.shared.titlePropertyName(databaseId: dbId)
         let properties: [String: Any] = [
-            "Name": [
+            titleProp: [
                 "title": [
                     ["text": ["content": note.content]]
                 ]

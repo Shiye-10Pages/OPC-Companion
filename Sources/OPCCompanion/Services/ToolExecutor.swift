@@ -525,9 +525,15 @@ public enum ToolExecutor {
               !dbId.isEmpty else {
             return errorResult("数据库未配置：请到设置页绑定 \(args["database_key"] ?? "")")
         }
-        guard let properties = args["properties"] as? [String: Any],
-              let propertiesData = try? JSONSerialization.data(withJSONObject: properties, options: []) else {
-            return errorResult("缺少或无法序列化 properties")
+        guard var properties = args["properties"] as? [String: Any] else {
+            return errorResult("缺少 properties")
+        }
+        // 写入前用真实 schema 校正标题列名（AI 常猜成 标题/Name，中文库实际可能叫"名称"）
+        if let schema = try? await NotionService.shared.databaseSchema(databaseId: dbId) {
+            properties = remapTitleProperty(properties, to: schema.titlePropertyName)
+        }
+        guard let propertiesData = try? JSONSerialization.data(withJSONObject: properties, options: []) else {
+            return errorResult("无法序列化 properties")
         }
 
         do {
@@ -542,6 +548,22 @@ public enum ToolExecutor {
     }
 
     // MARK: - Helpers
+
+    /// 把 AI 构造的 properties 里那个 title 类型属性的键名，校正为数据库真实标题列名。
+    /// 只动标题属性，其它属性原样保留；已正确或找不到 title 属性时原样返回。
+    static func remapTitleProperty(_ props: [String: Any], to titleName: String) -> [String: Any] {
+        var result = props
+        for (k, v) in props {
+            if let vd = v as? [String: Any], vd["title"] != nil {
+                if k != titleName {
+                    result.removeValue(forKey: k)
+                    result[titleName] = v
+                }
+                return result
+            }
+        }
+        return result
+    }
 
     private static func parseArgs(_ arguments: String) -> [String: Any] {
         guard let data = arguments.data(using: .utf8),
