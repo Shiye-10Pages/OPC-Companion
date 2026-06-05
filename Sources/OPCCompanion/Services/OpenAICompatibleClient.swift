@@ -31,8 +31,9 @@ public final class OpenAICompatibleClient: @unchecked Sendable {
 
     public enum ClientError: Error, LocalizedError {
         case network(underlying: Error)
-        case unauthorized          // 401
-        case rateLimited           // 429
+        case unauthorized          // 401 / MiniMax 1004,2049
+        case rateLimited           // 429 / MiniMax 1002,1039
+        case insufficientBalance   // MiniMax 1008（余额/额度不足）
         case invalidRequest(String) // 400
         case server(status: Int, message: String)  // 5xx
         case httpError(Int, String)  // 其他 HTTP
@@ -45,12 +46,29 @@ public final class OpenAICompatibleClient: @unchecked Sendable {
             case .network: return "网络连接失败，请检查你的网络"
             case .unauthorized: return "API Key 无效，请到设置页重新填写"
             case .rateLimited: return "请求过于频繁（限流），请稍后再试"
+            case .insufficientBalance: return "API 余额/额度不足，请到服务商控制台充值后再试"
             case .invalidRequest(let msg): return "请求参数错误：\(msg)"
             case .server(_, let msg): return "AI 服务暂时不可用：\(msg)"
             case .httpError(let code, let body): return "HTTP \(code)：\(body)"
             case .invalidResponse: return "AI 服务响应格式异常"
             case .encodingFailed: return "请求体编码失败"
             case .emptyResponse: return "AI 服务没有返回任何内容"
+            }
+        }
+
+        /// 紧凑诊断标签，仅用于日志（无隐私）。
+        var diagTag: String {
+            switch self {
+            case .network: return "network"
+            case .unauthorized: return "unauthorized"
+            case .rateLimited: return "rateLimited"
+            case .insufficientBalance: return "insufficientBalance"
+            case .invalidRequest: return "invalidRequest"
+            case .server(let status, _): return "server(\(status))"
+            case .httpError(let code, _): return "http(\(code))"
+            case .invalidResponse: return "invalidResponse"
+            case .encodingFailed: return "encodingFailed"
+            case .emptyResponse: return "emptyResponse"
             }
         }
 
@@ -62,13 +80,45 @@ public final class OpenAICompatibleClient: @unchecked Sendable {
         }
 
         static func categorize(httpStatus: Int, body: String) -> ClientError {
+            let lower = body.lowercased()
             switch httpStatus {
             case 401, 403: return .unauthorized
             case 400, 422: return .invalidRequest(body.isEmpty ? "参数无效" : body)
             case 429: return .rateLimited
-            case 500...599: return .server(status: httpStatus, message: body)
+            case 500...599:
+                // 有些网关把鉴权/余额错也塞进 5xx body（MiniMax 余额不足曾以 500 返回），关键词兜底
+                if lower.contains("api key") || lower.contains("invalid_api_key") || lower.contains("unauthorized") {
+                    return .unauthorized
+                }
+                if lower.contains("insufficient") || lower.contains("balance") || lower.contains("余额") {
+                    return .insufficientBalance
+                }
+                return .server(status: httpStatus, message: body)
             default: return .httpError(httpStatus, body)
             }
+        }
+
+        /// MiniMax 业务错误信封 `base_resp` 的分类：官方码表优先，码表未覆盖时按 status_msg 关键词兜底，
+        /// 避免真鉴权/余额错被笼统当成 .server（"服务暂时不可用"）误导用户。
+        static func fromMiniMaxBaseResp(code: Int, message: String) -> ClientError {
+            let lower = message.lowercased()
+            switch code {
+            case 1004, 2049: return .unauthorized        // 鉴权失败 / invalid api key
+            case 1008: return .insufficientBalance        // 余额不足
+            case 1002, 1039: return .rateLimited          // RPM 限流 / token 限流
+            default: break
+            }
+            if lower.contains("api key") || lower.contains("apikey") || lower.contains("鉴权")
+                || lower.contains("not authorized") || lower.contains("unauthorized") {
+                return .unauthorized
+            }
+            if lower.contains("余额") || lower.contains("balance") || lower.contains("欠费") || lower.contains("credit") {
+                return .insufficientBalance
+            }
+            if lower.contains("限流") || lower.contains("rate limit") || lower.contains("too many") {
+                return .rateLimited
+            }
+            return .server(status: code, message: message)
         }
     }
 
@@ -110,7 +160,7 @@ public final class OpenAICompatibleClient: @unchecked Sendable {
                 continuation.finish(throwing: error)
             }
         }
-        _ = (endpoint, apiKey)  // 保留以便未来调试，不参与 closure capture
+        _ = apiKey  // endpoint 现已用于失败日志的 host 标注；apiKey 暂保留待用
 
         return AsyncThrowingStream { continuation in
             let task = Task {
@@ -120,10 +170,10 @@ public final class OpenAICompatibleClient: @unchecked Sendable {
                     if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
                         var bodyText = ""
                         for try await line in bytes.lines { bodyText += line + "\n" }
-                        continuation.finish(throwing: ClientError.categorize(
-                            httpStatus: http.statusCode,
-                            body: bodyText.trimmingCharacters(in: .whitespacesAndNewlines)
-                        ))
+                        let trimmed = bodyText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let err = ClientError.categorize(httpStatus: http.statusCode, body: trimmed)
+                        logError("llm", "http \(http.statusCode) host=\(endpoint.host ?? "?") body=\(LogRedactor.redact(String(trimmed.prefix(200)))) -> \(err.diagTag)")
+                        continuation.finish(throwing: err)
                         return
                     }
 
@@ -134,6 +184,7 @@ public final class OpenAICompatibleClient: @unchecked Sendable {
                     }
                     continuation.finish()
                 } catch let error as URLError {
+                    logError("llm", "network host=\(endpoint.host ?? "?") urlerror=\(error.code.rawValue)")
                     continuation.finish(throwing: ClientError.network(underlying: error))
                 } catch {
                     continuation.finish(throwing: error)
@@ -228,11 +279,13 @@ public final class OpenAICompatibleClient: @unchecked Sendable {
             let code = Int((err?["http_code"] as? String) ?? "") ?? 529
             throw ClientError.server(status: code, message: etype == "overloaded_error" ? "服务端过载，请稍后重试" : etype)
         }
-        // 形如 {"base_resp":{"status_code":1004,"status_msg":"..."}}（MiniMax 业务错误，常以 HTTP 200 返回）
+        // 形如 {"base_resp":{"status_code":2049,"status_msg":"invalid api key"}}（MiniMax 业务错误，常以 HTTP 200 返回）
         if let base = object["base_resp"] as? [String: Any],
            let code = base["status_code"] as? Int, code != 0 {
-            if code == 1004 || code == 1039 { throw ClientError.unauthorized }
-            throw ClientError.server(status: code, message: (base["status_msg"] as? String) ?? "未知错误")
+            let msg = (base["status_msg"] as? String) ?? "未知错误"
+            let err = ClientError.fromMiniMaxBaseResp(code: code, message: msg)
+            logError("llm", "minimax base_resp code=\(code) msg=\(LogRedactor.redact(msg)) -> \(err.diagTag)")
+            throw err
         }
 
         let choices = object["choices"] as? [[String: Any]] ?? []

@@ -248,9 +248,11 @@ public enum ToolExecutor {
 
     @MainActor
     public static func execute(_ call: WireToolCall) async -> String {
-        logInfo("tool", "execute \(call.function.name) args=\(call.function.arguments)")
         let state = AppState.shared
         let args = parseArgs(call.function.arguments)
+        // 只记参数名、不记参数值——值可能含用户原文（会议标题、随手记等），绝不落盘
+        let argKeys = args.keys.sorted().joined(separator: ",")
+        logInfo("tool", "execute \(call.function.name) argKeys=[\(argKeys)]")
 
         switch call.function.name {
         case "start_timer":
@@ -510,6 +512,7 @@ public enum ToolExecutor {
             let results = json["results"] as? [[String: Any]] ?? []
             return successResult(["count": results.count, "results": results])
         } catch {
+            logError("notion", "query failed: \(LogRedactor.redact(error.localizedDescription))")
             return errorResult(error.localizedDescription)
         }
     }
@@ -533,6 +536,7 @@ public enum ToolExecutor {
             let pageId = json["id"] as? String ?? ""
             return successResult(["page_id": pageId])
         } catch {
+            logError("notion", "create failed: \(LogRedactor.redact(error.localizedDescription))")
             return errorResult(error.localizedDescription)
         }
     }
