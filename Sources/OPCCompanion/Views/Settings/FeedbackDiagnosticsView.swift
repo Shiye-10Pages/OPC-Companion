@@ -28,9 +28,9 @@ struct FeedbackDiagnosticsView: View {
     private var updateBlock: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("版本与更新").font(.headline)
+                Label("版本与更新", systemImage: "arrow.triangle.2.circlepath").font(.system(size: 15, weight: .semibold))
                 Spacer()
-                Text("当前 v\(AppVersion.current)").font(.caption).foregroundColor(.secondary)
+                Text("当前 v\(AppVersion.current)").font(.system(size: 13)).foregroundColor(.secondary)
             }
 
             if let up = state.availableUpdate {
@@ -39,7 +39,7 @@ struct FeedbackDiagnosticsView: View {
                     Text("有新版本 v\(up.version)").font(.subheadline).bold()
                 }
                 if !up.notes.isEmpty {
-                    Text(up.notes).font(.caption).foregroundColor(.secondary)
+                    Text(up.notes).font(.system(size: 13)).foregroundColor(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 HStack(spacing: 8) {
@@ -53,7 +53,7 @@ struct FeedbackDiagnosticsView: View {
                     } label: { Label("打开主页", systemImage: "arrow.up.right.square") }
                     .buttonStyle(.bordered)
                 }
-                Text("把命令粘贴到「终端」回车即可更新。").font(.caption2).foregroundColor(.secondary)
+                Text("把命令粘贴到「终端」回车即可更新。").font(.system(size: 11.5)).foregroundColor(.secondary)
             } else {
                 HStack(spacing: 8) {
                     Button {
@@ -72,7 +72,7 @@ struct FeedbackDiagnosticsView: View {
 
                     if checkingUpdate { ProgressView().controlSize(.small) }
                     if !updateCheckResult.isEmpty {
-                        Text(updateCheckResult).font(.caption).foregroundColor(.secondary)
+                        Text(updateCheckResult).font(.system(size: 13)).foregroundColor(.secondary)
                     }
                 }
             }
@@ -85,9 +85,9 @@ struct FeedbackDiagnosticsView: View {
     private var feedbackBlock: some View {
         HStack(alignment: .top, spacing: 20) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("反馈与诊断").font(.headline)
+                Label("反馈与诊断", systemImage: "exclamationmark.bubble").font(.system(size: 15, weight: .semibold))
                 Text("遇到问题？复制一份已脱敏的诊断日志发我，我来帮你看。日志不含 API Key、Notion Token，会议/随手记原文也已抹除。")
-                    .font(.caption).foregroundColor(.secondary)
+                    .font(.system(size: 13)).foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
                 Button {
@@ -95,7 +95,7 @@ struct FeedbackDiagnosticsView: View {
                 } label: { Label("复制诊断日志", systemImage: "doc.on.clipboard") }
                 .buttonStyle(.borderedProminent)
 
-                Text("扫右侧二维码加我企微，把日志粘贴发我。").font(.caption2).foregroundColor(.secondary)
+                Text("扫右侧二维码加我企微，把日志粘贴发我。").font(.system(size: 11.5)).foregroundColor(.secondary)
             }
 
             Spacer(minLength: 8)
@@ -107,7 +107,7 @@ struct FeedbackDiagnosticsView: View {
                         .scaledToFit()
                         .frame(width: 132)
                         .clipShape(RoundedRectangle(cornerRadius: 8))
-                    Text("扫码加我企微").font(.caption2).foregroundColor(.secondary)
+                    Text("扫码加我企微").font(.system(size: 11.5)).foregroundColor(.secondary)
                 }
             }
         }

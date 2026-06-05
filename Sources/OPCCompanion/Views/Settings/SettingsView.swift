@@ -24,6 +24,7 @@ struct SettingsView: View {
     @State private var notionInboxId = ""
     @State private var showClearChatConfirm = false
     @State private var showNotionGuide = false
+    @State private var showSystemPrompt = false
 
     private var availableVoices: [AVSpeechSynthesisVoice] {
         TTSService.availableVoices()
@@ -63,117 +64,11 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 20) {
                 setupChecklist
 
-                AboutShiyeAIView()
-
-                Divider()
-
-                ThemeSection()
-
-                Divider()
-
-                // 入口模式（Option+空格 唤起哪种界面）
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("入口模式")
-                        .font(.headline)
-                    Text("Option+空格 唤起哪种界面（即时生效）")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Picker("", selection: entryModeBinding) {
-                        Text("Quiet Field 前门（折叠 bar，可展开）").tag("quietField")
-                        Text("经典面板（三胶囊全功能）").tag("classic")
-                    }
-                    .pickerStyle(.radioGroup)
-                    .labelsHidden()
-                }
-
-                Divider()
-
-                // 对话
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("对话")
-                        .font(.headline)
-                    // 用应用内内联确认，不用系统 .alert：系统 alert 会让主面板失焦，
-                    // 触发 windowDidResignKey → hidePanel 把主面板关掉（看起来像"闪退"），
-                    // 且 alert 随面板消失，确认根本点不到。
-                    if showClearChatConfirm {
-                        HStack(spacing: 8) {
-                            Text("确认清空？")
-                                .font(.system(size: 13))
-                                .foregroundColor(.secondary)
-                            Button("清空", role: .destructive) {
-                                state.clearCurrentChat()
-                                showClearChatConfirm = false
-                            }
-                            Button("取消") { showClearChatConfirm = false }
-                        }
-                    } else {
-                        Button(role: .destructive) {
-                            showClearChatConfirm = true
-                        } label: {
-                            Label("清空当前聊天", systemImage: "trash")
-                        }
-                    }
-                    Text("清空当前聊天界面的对话内容；往期已归档记录不受影响，此操作不可撤销。")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Divider()
-
-                // 隐私边界（明确告知「聊聊」会外发哪些本地上下文）
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("隐私边界")
-                        .font(.headline)
-                    Text("「记一下」纯本地，不联网、不发送给 AI。\n「聊聊」为了让助手记得你，每次对话会把长期记忆、用户画像、近几天 daily、最近周报和当前任务/收件箱状态发送给你选择的 AI 服务商；对话中的记忆检索与 Notion 查询结果也会回传给模型。\nAPI key 与 Notion token 存于 Keychain，绝不明文落盘。")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Divider()
-
-                // 系统提示词
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("系统提示词")
-                        .font(.headline)
-
-                    TextEditor(text: $systemPromptText)
-                        .font(.system(.body, design: .monospaced))
-                        .frame(minHeight: 150)
-                        .padding(8)
-                        .background(Color(nsColor: .textBackgroundColor))
-                        .cornerRadius(8)
-                        .onChange(of: systemPromptText) { _, newValue in
-                            debounceSave(newValue)
-                        }
-                }
-
-                Divider()
-
-                // 语音选择
+                // —— 核心配置（首次设置优先）——
+                // AI 模型
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("语音合成")
-                        .font(.headline)
-
-                    Picker("语音", selection: $selectedVoice) {
-                        ForEach(availableVoices, id: \.identifier) { voice in
-                            Text(TTSService.voiceDisplayName(voice))
-                                .tag(voice.identifier)
-                        }
-                    }
-                    .onChange(of: selectedVoice) { _, newValue in
-                        state.config.voice.ttsVoice = newValue
-                        state.saveConfig()
-                    }
-                }
-
-                Divider()
-
-                // API 配置
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("API 配置")
-                        .font(.headline)
+                    Label("AI 模型", systemImage: "cpu")
+                        .font(.system(size: 15, weight: .semibold))
 
                     Picker("提供商", selection: providerBinding) {
                         Text("MiniMax (海外版)").tag("minimax")
@@ -214,7 +109,7 @@ struct SettingsView: View {
 
                     if selectedProvider == "anthropic" {
                         Text("Anthropic 当前通过官方 OpenAI SDK 兼容层接入，适合快速使用和对比测试。")
-                            .font(.caption)
+                            .font(.system(size: 13))
                             .foregroundColor(.secondary)
                     }
 
@@ -226,21 +121,78 @@ struct SettingsView: View {
 
                     if connectionStatus != "" {
                         Text(connectionStatus)
-                            .font(.caption)
+                            .font(.system(size: 13))
                             .foregroundColor(connectionStatus.contains("成功") ? AppColors.statusOk : AppColors.statusError)
                     }
                 }
-
-                Divider()
+                .settingsCard()
 
                 notionSection
+                    .settingsCard()
 
-                Divider()
+                // —— 外观与交互 ——
+                ThemeSection()
+                    .settingsCard()
+
+                // 入口模式（Option+空格 唤起哪种界面）
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("入口模式", systemImage: "macwindow")
+                        .font(.system(size: 15, weight: .semibold))
+                    Text("Option+空格 唤起哪种界面（即时生效）")
+                        .font(.system(size: 13))
+                        .foregroundColor(.secondary)
+                    Picker("", selection: entryModeBinding) {
+                        Text("Quiet Field 前门（折叠 bar，可展开）").tag("quietField")
+                        Text("经典面板（三胶囊全功能）").tag("classic")
+                    }
+                    .pickerStyle(.radioGroup)
+                    .labelsHidden()
+                }
+                .settingsCard()
+
+                // 语音选择
+                VStack(alignment: .leading, spacing: 12) {
+                    Label("语音合成", systemImage: "waveform")
+                        .font(.system(size: 15, weight: .semibold))
+
+                    Picker("语音", selection: $selectedVoice) {
+                        ForEach(availableVoices, id: \.identifier) { voice in
+                            Text(TTSService.voiceDisplayName(voice))
+                                .tag(voice.identifier)
+                        }
+                    }
+                    .onChange(of: selectedVoice) { _, newValue in
+                        state.config.voice.ttsVoice = newValue
+                        state.saveConfig()
+                    }
+                }
+                .settingsCard()
+
+                // —— 高级 ——
+                // 系统提示词（默认折叠，进阶用户才展开）
+                VStack(alignment: .leading, spacing: 8) {
+                    DisclosureGroup(isExpanded: $showSystemPrompt) {
+                        TextEditor(text: $systemPromptText)
+                            .font(.system(.body, design: .monospaced))
+                            .frame(minHeight: 150)
+                            .padding(8)
+                            .background(Color(nsColor: .textBackgroundColor))
+                            .cornerRadius(8)
+                            .onChange(of: systemPromptText) { _, newValue in
+                                debounceSave(newValue)
+                            }
+                            .padding(.top, 6)
+                    } label: {
+                        Label("系统提示词", systemImage: "text.bubble")
+                            .font(.system(size: 15, weight: .semibold))
+                    }
+                }
+                .settingsCard()
 
                 // 代理配置
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("代理配置")
-                        .font(.headline)
+                    Label("代理配置", systemImage: "network")
+                        .font(.system(size: 15, weight: .semibold))
 
                     Toggle("启用代理", isOn: $proxyEnabled)
                         .onChange(of: proxyEnabled) { _, newValue in
@@ -266,27 +218,71 @@ struct SettingsView: View {
                         }
                     }
                 }
+                .settingsCard()
 
-                Divider()
+                // 对话
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("对话", systemImage: "bubble.left.and.bubble.right")
+                        .font(.system(size: 15, weight: .semibold))
+                    // 用应用内内联确认，不用系统 .alert：系统 alert 会让主面板失焦，
+                    // 触发 windowDidResignKey → hidePanel 把主面板关掉（看起来像"闪退"），
+                    // 且 alert 随面板消失，确认根本点不到。
+                    if showClearChatConfirm {
+                        HStack(spacing: 8) {
+                            Text("确认清空？")
+                                .font(.system(size: 13))
+                                .foregroundColor(.secondary)
+                            Button("清空", role: .destructive) {
+                                state.clearCurrentChat()
+                                showClearChatConfirm = false
+                            }
+                            Button("取消") { showClearChatConfirm = false }
+                        }
+                    } else {
+                        Button(role: .destructive) {
+                            showClearChatConfirm = true
+                        } label: {
+                            Label("清空当前聊天", systemImage: "trash")
+                        }
+                    }
+                    Text("清空当前聊天界面的对话内容；往期已归档记录不受影响，此操作不可撤销。")
+                        .font(.system(size: 13))
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .settingsCard()
 
+                // —— 状态与隐私 ——
                 // 连接状态
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("连接状态")
-                        .font(.headline)
+                    Label("连接状态", systemImage: "checkmark.seal")
+                        .font(.system(size: 15, weight: .semibold))
 
                     HStack(spacing: 16) {
                         StatusIndicator(name: "Notion", isConnected: checkNotionConnection())
                         StatusIndicator(name: APIConfig.displayName(for: selectedProvider), isConnected: checkAIConnection())
                     }
                 }
+                .settingsCard()
 
-                Divider()
+                // 隐私边界（明确告知「聊聊」会外发哪些本地上下文）
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("隐私边界", systemImage: "lock.shield")
+                        .font(.system(size: 15, weight: .semibold))
+                    Text("「记一下」纯本地，不联网、不发送给 AI。\n「聊聊」为了让助手记得你，每次对话会把长期记忆、用户画像、近几天 daily、最近周报和当前任务/收件箱状态发送给你选择的 AI 服务商；对话中的记忆检索与 Notion 查询结果也会回传给模型。\nAPI key 与 Notion token 存于 Keychain，绝不明文落盘。")
+                        .font(.system(size: 13))
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .settingsCard()
 
+                // —— 反馈 / 关于 / 诊断（页脚）——
                 FeedbackDiagnosticsView()
 
-                Divider()
+                AboutShiyeAIView()
 
                 HotkeyDiagnosticsSection()
+                    .settingsCard()
 
                 Spacer()
             }
@@ -332,7 +328,7 @@ struct SettingsView: View {
                     Image(systemName: "list.bullet.clipboard")
                         .foregroundColor(.orange)
                     Text("配置步骤")
-                        .font(.headline)
+                        .font(.system(size: 15, weight: .semibold))
                     Spacer()
                 }
                 checklistRow(done: apiKeyOK, label: "填写 AI 模型 API Key", required: true)
@@ -376,7 +372,7 @@ struct SettingsView: View {
     @ViewBuilder
     private var notionSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Notion").font(.headline)
+            Label("Notion", systemImage: "doc.text").font(.system(size: 15, weight: .semibold))
 
             notionGuide
 
@@ -402,9 +398,9 @@ struct SettingsView: View {
                 .disabled(notionToken.isEmpty || notionLoadingDatabases)
 
                 if let err = notionLoadError {
-                    Text(err).font(.caption).foregroundColor(.red)
+                    Text(err).font(.system(size: 13)).foregroundColor(.red)
                 } else if !notionDatabases.isEmpty {
-                    Text("共 \(notionDatabases.count) 个").font(.caption).foregroundColor(.secondary)
+                    Text("共 \(notionDatabases.count) 个").font(.system(size: 13)).foregroundColor(.secondary)
                 }
             }
 
@@ -443,12 +439,12 @@ struct SettingsView: View {
                     "点下方「刷新数据库列表」，把三个库各选一下"
                 ])
                 Text("漏了第 ② 步的话，下面会刷不出库、AI 写入也会 404 失败。")
-                    .font(.caption2).foregroundColor(.orange)
+                    .font(.system(size: 11.5)).foregroundColor(.orange)
                     .fixedSize(horizontal: false, vertical: true)
                 Link(destination: URL(string: "https://www.notion.so/my-integrations")!) {
                     Label("打开 Notion 集成页", systemImage: "arrow.up.right.square")
                 }
-                .font(.caption)
+                .font(.system(size: 13))
             }
             .padding(.top, 6)
         } label: {
@@ -459,11 +455,11 @@ struct SettingsView: View {
 
     private func notionGuideStep(_ num: String, _ title: String, _ lines: [String]) -> some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text("\(num) \(title)").font(.caption).bold()
+            Text("\(num) \(title)").font(.system(size: 13)).bold()
             ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
                 HStack(alignment: .top, spacing: 6) {
-                    Text("·").font(.caption2).foregroundColor(.secondary)
-                    Text(line).font(.caption2).foregroundColor(.secondary)
+                    Text("·").font(.system(size: 11.5)).foregroundColor(.secondary)
+                    Text(line).font(.system(size: 11.5)).foregroundColor(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -557,7 +553,7 @@ struct ScheduledTaskRow: View {
                         .font(.subheadline)
                         .foregroundColor(.primary)
                     Text("\(task.time) · \(scheduleDescription(task.schedule))")
-                        .font(.caption)
+                        .font(.system(size: 13))
                         .foregroundColor(.secondary)
                 }
             }
@@ -637,7 +633,7 @@ struct ScheduledTaskForm: View {
     var body: some View {
         VStack(spacing: 20) {
             Text(task == nil ? "新建定时任务" : "编辑定时任务")
-                .font(.headline)
+                .font(.system(size: 15, weight: .semibold))
 
             Form {
                 TextField("任务名称", text: $name)
@@ -747,6 +743,21 @@ struct ScheduledTaskForm: View {
     }
 }
 
+/// 设置页统一卡片样式：圆角 + 控件背景 + 细描边 + 16pt 内边距，让各分节观感一致。
+private struct SettingsCardStyle: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16)
+            .background(RoundedRectangle(cornerRadius: 12).fill(Color(nsColor: .controlBackgroundColor)))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.secondary.opacity(0.18), lineWidth: 1))
+    }
+}
+
+private extension View {
+    func settingsCard() -> some View { modifier(SettingsCardStyle()) }
+}
+
 struct StatusIndicator: View {
     let name: String
     let isConnected: Bool
@@ -771,8 +782,8 @@ struct HotkeyDiagnosticsSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("全局热键诊断")
-                .font(.headline)
+            Label("全局热键诊断", systemImage: "keyboard")
+                .font(.system(size: 15, weight: .semibold))
 
             TimelineView(.periodic(from: .now, by: 1.0)) { _ in
                 VStack(alignment: .leading, spacing: 6) {
@@ -813,7 +824,7 @@ struct HotkeyDiagnosticsSection: View {
                 Text("• 启动器：Alfred / Raycast / Spotlight 可能占用相同组合。")
                 Text("排查路径：先看屏幕顶部 Banner 提示 → 再看上方诊断快照 → 最后 grep `[hotkey]` 日志。")
             }
-            .font(.caption2)
+            .font(.system(size: 11.5))
             .foregroundColor(.secondary)
             .padding(8)
             .background(
@@ -831,7 +842,7 @@ struct HotkeyDiagnosticsSection: View {
                 .font(.system(size: 13))
             VStack(alignment: .leading, spacing: 2) {
                 Text(label).font(.system(size: 12, weight: .medium))
-                Text(detail).font(.caption2).foregroundColor(.secondary)
+                Text(detail).font(.system(size: 11.5)).foregroundColor(.secondary)
             }
             Spacer()
         }
@@ -844,7 +855,7 @@ struct SettingsPopoverView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("OPC 伴侣")
-                .font(.headline)
+                .font(.system(size: 15, weight: .semibold))
 
             if state.hasUnreadReminders {
                 HStack {

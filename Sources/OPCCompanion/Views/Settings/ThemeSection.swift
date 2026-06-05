@@ -19,12 +19,12 @@ struct ThemeSection: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("外观主题")
-                    .font(.headline)
+                Label("外观主题", systemImage: "paintpalette")
+                    .font(.system(size: 15, weight: .semibold))
                 Text("主题不是换皮，是换 AI 的灵魂")
-                    .font(.system(size: 11))
+                    .font(.system(size: 12))
                     .foregroundStyle(.secondary)
             }
 
@@ -43,7 +43,7 @@ struct ThemeSection: View {
             }
 
             // 颜色方案
-            Divider().padding(.vertical, 4)
+            Divider().padding(.vertical, 2)
             VStack(alignment: .leading, spacing: 8) {
                 Text("颜色方案")
                     .font(.subheadline)
@@ -84,7 +84,7 @@ struct ThemeSection: View {
             }
 
             // 主题给 AI 的提示词（只读，可折叠）
-            Divider().padding(.vertical, 4)
+            Divider().padding(.vertical, 2)
             ThemePromptInspector(
                 themeID: currentID,
                 prompt: themeProvider.current.systemPromptAppendix,
@@ -293,7 +293,7 @@ struct ThemeCard: View {
                 // 顶部色彩 swatch（每个主题独有的"招牌画面"）
                 ZStack(alignment: .topTrailing) {
                     swatchView
-                        .frame(height: 72)
+                        .frame(height: 52)
                         .clipped()
 
                     if !isAvailable {
