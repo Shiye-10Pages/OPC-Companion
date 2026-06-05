@@ -23,6 +23,7 @@ struct SettingsView: View {
     @State private var notionTodosId = ""
     @State private var notionInboxId = ""
     @State private var showClearChatConfirm = false
+    @State private var showNotionGuide = false
 
     private var availableVoices: [AVSpeechSynthesisVoice] {
         TTSService.availableVoices()
@@ -176,8 +177,11 @@ struct SettingsView: View {
 
                     Picker("提供商", selection: providerBinding) {
                         Text("MiniMax (海外版)").tag("minimax")
+                        Text("MiniMax (国内版)").tag("minimax-cn")
                         Text("DeepSeek").tag("deepseek")
-                        Text("通义千问").tag("qwen")
+                        Text("通义千问 Qwen").tag("qwen")
+                        Text("智谱 GLM").tag("glm")
+                        Text("Kimi (Moonshot)").tag("kimi")
                         Text("OpenAI").tag("openai")
                         Text("Anthropic (兼容模式)").tag("anthropic")
                         Text("SiliconFlow").tag("siliconflow")
@@ -331,7 +335,7 @@ struct SettingsView: View {
                         .font(.headline)
                     Spacer()
                 }
-                checklistRow(done: apiKeyOK, label: "填写 \(APIConfig.displayName(for: selectedProvider)) API Key", required: true)
+                checklistRow(done: apiKeyOK, label: "填写 AI 模型 API Key", required: true)
                 checklistRow(done: notionTokenOK, label: "填写 Notion Token", required: false)
                 checklistRow(done: dbMapped, label: "绑定至少一个 Notion 数据库", required: false)
             }
@@ -374,6 +378,8 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Notion").font(.headline)
 
+            notionGuide
+
             SecureField("Notion Token（存储在 macOS Keychain）", text: $notionToken)
                 .textFieldStyle(.roundedBorder)
                 .onChange(of: notionToken) { _, newValue in
@@ -414,6 +420,51 @@ struct SettingsView: View {
                 notionMappingRow(label: "收件箱", selection: $notionInboxId) { id in
                     state.config.notionDatabaseIds.inbox = id
                     state.saveConfig()
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var notionGuide: some View {
+        DisclosureGroup(isExpanded: $showNotionGuide) {
+            VStack(alignment: .leading, spacing: 10) {
+                notionGuideStep("①", "获取 Token", [
+                    "打开下方「Notion 集成页」按钮",
+                    "点 New integration，起个名（如 OPC Companion）后选 workspace 创建",
+                    "复制 Internal Integration Secret（ntn_ 开头），粘到下面输入框"
+                ])
+                notionGuideStep("②", "把集成共享给数据库（必做）", [
+                    "打开你要用的 Notion 数据库页面",
+                    "右上角 ··· → Connections（连接）→ 选你刚建的那个集成",
+                    "日历 / 待办 / 收件箱 每个库都连一遍"
+                ])
+                notionGuideStep("③", "回到这里绑定", [
+                    "点下方「刷新数据库列表」，把三个库各选一下"
+                ])
+                Text("漏了第 ② 步的话，下面会刷不出库、AI 写入也会 404 失败。")
+                    .font(.caption2).foregroundColor(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                Link(destination: URL(string: "https://www.notion.so/my-integrations")!) {
+                    Label("打开 Notion 集成页", systemImage: "arrow.up.right.square")
+                }
+                .font(.caption)
+            }
+            .padding(.top, 6)
+        } label: {
+            Label("如何获取 Token / 连接数据库？", systemImage: "questionmark.circle")
+                .font(.subheadline)
+        }
+    }
+
+    private func notionGuideStep(_ num: String, _ title: String, _ lines: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text("\(num) \(title)").font(.caption).bold()
+            ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                HStack(alignment: .top, spacing: 6) {
+                    Text("·").font(.caption2).foregroundColor(.secondary)
+                    Text(line).font(.caption2).foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
