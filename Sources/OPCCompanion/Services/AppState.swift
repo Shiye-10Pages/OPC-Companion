@@ -93,6 +93,9 @@ public final class AppState: ObservableObject {
     @Published public var banner: BannerMessage?
     private var bannerDismissTask: Task<Void, Never>?
 
+    /// 可用更新（由 UpdateService 写入；nil = 已是最新 / 未知）。
+    @Published public var availableUpdate: UpdateInfo?
+
     // 添加任务浮层显示开关（放 MainTabView 层级承载，避免在 borderless NSPanel 里用 .sheet 崩）
     @Published public var showAddTaskOverlay = false
     // 定时任务表单（同理，从 SettingsView .sheet 迁到 MainTabView overlay）

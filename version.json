@@ -1,0 +1,6 @@
+{
+  "version": "1.1.0",
+  "notes": "修复 MiniMax 鉴权报错识别（invalid api key 不再显示成「服务暂时不可用」）；新增脱敏诊断日志一键复制与企微反馈入口；新增版本更新提示。",
+  "install_cmd": "/bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Shiye-10Pages/OPC-Companion/refs/heads/feature/focused-conversation-memory/scripts/install.sh)\"",
+  "url": "https://github.com/Shiye-10Pages/OPC-Companion"
+}

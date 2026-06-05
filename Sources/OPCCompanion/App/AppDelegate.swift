@@ -566,11 +566,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             await WeeklyArchiveService.shared.checkWeeklyRolloverIfNeeded()
         }
 
+        // 启动即查一次版本更新（内部 6h 节流；常驻 app 靠下面 60s 定时器兜底，不会反复打扰）
+        UpdateService.shared.checkInBackground()
+
         scheduledCheckTimer = Timer.scheduledTimer(withTimeInterval: 60.0, repeats: true) { _ in
             MainActor.assumeIsolated {
                 AppState.shared.checkScheduledTasks()
                 AppState.shared.checkProgressPing()
                 InboxService.shared.expirePendingNotesOlderThan48h(state: AppState.shared)
+                UpdateService.shared.checkInBackground()
                 Task { @MainActor in
                     await SessionArchiveService.shared.checkRolloverNeeded()
                     await WeeklyArchiveService.shared.checkWeeklyRolloverIfNeeded()

@@ -278,6 +278,10 @@ struct SettingsView: View {
 
                 Divider()
 
+                FeedbackDiagnosticsView()
+
+                Divider()
+
                 HotkeyDiagnosticsSection()
 
                 Spacer()
