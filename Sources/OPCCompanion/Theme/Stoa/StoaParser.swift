@@ -141,7 +141,7 @@ public enum StoaParser {
                                   body: String(text[bodyRange]),
                                   attrs: parseAttributes(String(text[attrRange])),
                                   range: fullRange)
-            if best == nil || candidate.range.lowerBound < best!.range.lowerBound {
+            if best == nil || candidate.range.lowerBound < (best?.range.lowerBound ?? text.endIndex) {
                 best = candidate
             }
         }
