@@ -9,7 +9,7 @@ enum AppVersion {
     static var current: String {
         let v = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        return (v?.isEmpty == false) ? v! : devSentinel
+        return v.flatMap { $0.isEmpty ? nil : $0 } ?? devSentinel
     }
 
     static var isDevBuild: Bool { current == devSentinel }
