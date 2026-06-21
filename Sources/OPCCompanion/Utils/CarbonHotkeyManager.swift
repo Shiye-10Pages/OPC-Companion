@@ -200,4 +200,11 @@ public final class CarbonHotkeyManager: @unchecked Sendable {
     private func diag(_ msg: String) {
         OPCLogger.shared.log(.info, "hotkey", "[HOTKEY-DIAG] \(msg)")
     }
+
+    deinit {
+        unregisterAll()
+        if let handler = eventHandler {
+            RemoveEventHandler(handler)
+        }
+    }
 }
