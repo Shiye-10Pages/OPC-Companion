@@ -44,6 +44,12 @@ public final class CarbonHotkeyManager: @unchecked Sendable {
         installEventHandler()
     }
 
+    deinit {
+        if let handler = eventHandler {
+            RemoveEventHandler(handler)
+        }
+    }
+
     // MARK: - Public
 
     /// 注册一个全局热键。返回内部分配的 id（用于反注册）。失败返回 nil。
