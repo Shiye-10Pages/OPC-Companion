@@ -143,6 +143,7 @@ final class NotionConfirmManager: ObservableObject {
     private init() {}
 
     /// 请求用户确认；await 直到用户点 确认/取消。返回 true=执行，false=取消。
+    @preconcurrency
     func requestConfirmation(toolCall: WireToolCall) async -> Bool {
         await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
             self.pendingToolCall = toolCall
