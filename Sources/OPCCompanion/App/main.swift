@@ -5,6 +5,7 @@ OPCLogger.shared.installCrashHandler()
 logInfo("main", "OPCCompanion starting")
 
 let delegate = AppDelegate()
+AppDelegate.shared = delegate
 NSApplication.shared.delegate = delegate
 logInfo("main", "Delegate set")
 
