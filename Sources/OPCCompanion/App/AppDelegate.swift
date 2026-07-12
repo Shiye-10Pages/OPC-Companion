@@ -794,7 +794,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func showPanel() {
-        print("[AppDelegate] showPanel called")
         dlog("===========================================")
         dlog("[ACTION] showPanel called")
 
