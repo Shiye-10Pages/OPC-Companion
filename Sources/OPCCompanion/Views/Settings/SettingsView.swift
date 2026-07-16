@@ -663,9 +663,9 @@ struct ScheduledTaskForm: View {
             }
 
             HStack {
-                if task != nil {
+                if let task = task {
                     Button("删除") {
-                        if onDelete(task!) {
+                        if onDelete(task) {
                             onCancel()
                         }
                     }
